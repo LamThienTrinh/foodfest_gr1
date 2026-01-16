@@ -156,12 +156,6 @@ pod install
 
 ---
 
-## 👨‍💻 Author
-
-- **Tên**: [Your Name]
-- **Môn học**: Mobile Programming
-- **Năm**: 2025-2026
-
 ---
 
 ## 📝 License
