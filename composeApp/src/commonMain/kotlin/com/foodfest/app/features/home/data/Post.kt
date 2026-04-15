@@ -19,16 +19,19 @@ data class Post(
     val createdAt: String
 )
 
-// @Serializable
-// data class Comment(
-//     val id: Int,
-//     val userId: Int,
-//     val userName: String,
-//     val userAvatar: String? = null,
-//     val postId: Int,
-//     val content: String,
-//     val createdAt: String
-// )
+@Serializable
+data class Comment(
+    val id: Int,
+    val userId: Int,
+    val userName: String,
+    val userAvatar: String? = null,
+    val postId: Int,
+    val parentCommentId: Int? = null,
+    val replyCount: Int = 0,
+    val depth: Int = 0,
+    val content: String,
+    val createdAt: String
+)
 
 @Serializable
 data class CreatePostRequest(
@@ -38,10 +41,11 @@ data class CreatePostRequest(
     val imageUrl: String? = null
 )
 
-// @Serializable
-// data class CreateCommentRequest(
-//     val content: String
-// )
+@Serializable
+data class CreateCommentRequest(
+    val content: String,
+    val parentCommentId: Int? = null
+)
 
 @Serializable
 data class PostResponse(
@@ -51,10 +55,10 @@ data class PostResponse(
     val total: Int
 )
 
-// @Serializable
-// data class CommentResponse(
-//     val data: List<Comment>,
-//     val page: Int,
-//     val limit: Int,
-//     val total: Int
-// )
+@Serializable
+data class CommentResponse(
+    val data: List<Comment>,
+    val page: Int,
+    val limit: Int,
+    val total: Int
+)

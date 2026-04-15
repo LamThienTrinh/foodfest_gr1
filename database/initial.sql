@@ -1,5 +1,12 @@
 -- Active: 1763946630811@@127.0.0.1@5432@foodfest
 
+-- NOTE:
+-- This is a legacy bootstrap script kept for reference.
+-- New setup should use:
+--   1) database/schema.sql (schema only)
+--   2) database/seed.sql   (sample data)
+-- or database/run-migrations.ps1 for versioned migrations.
+
 -- =============================================
 -- 1. USER & SYSTEM DATA (Dữ liệu gốc)
 -- =============================================
@@ -145,22 +152,6 @@ CREATE TABLE comments (
 ALTER TABLE posts 
 ADD COLUMN like_count INT DEFAULT 0,    -- Tổng số lượt like
 ADD COLUMN comment_count INT DEFAULT 0; -- Tổng số bình luận
-
-
-
-CREATE TABLE follows (
-    follower_id INT NOT NULL, -- Người đi follow (Ví dụ: Tôi)
-    following_id INT NOT NULL, -- Người được follow (Ví dụ: Idol)
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    
-    PRIMARY KEY (follower_id, following_id), -- Một người chỉ follow người kia 1 lần
-    
-    CONSTRAINT fk_f_follower FOREIGN KEY (follower_id) REFERENCES users(user_id) ON DELETE CASCADE,
-    CONSTRAINT fk_f_following FOREIGN KEY (following_id) REFERENCES users(user_id) ON DELETE CASCADE,
-
-    -- Chặn việc tự mình follow chính mình (Optional nhưng nên có)
-    CONSTRAINT check_self_follow CHECK (follower_id <> following_id)
-);
 
 -- =============================================
 -- SAMPLE DATA
@@ -311,7 +302,6 @@ Bước 4: Hoàn thành
 - Tắt bếp ngay khi rau vừa chín.
 - Múc ra đĩa, ăn ngay khi còn nóng.',
 10, 5, 3),
-
 -- 4. Trứng đúc thịt
 ('Trứng đúc thịt',
 '/images/trung-duc-thit.jpg',

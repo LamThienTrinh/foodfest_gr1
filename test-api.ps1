@@ -103,6 +103,10 @@ try {
   if ($probeMy.StatusCode -eq 404) {
     throw "Server returned 404 for /api/my-dishes. Restart server with './gradlew :server:run' to load new routes."
   }
+  $probeFamily = Invoke-Raw GET "$BaseUrl/api/families" $token
+  if ($probeFamily.StatusCode -eq 404) {
+    throw "Server returned 404 for /api/families. Restart server with './gradlew :server:run' to load new routes."
+  }
 
   # -----------------------
   # FAVORITES
@@ -195,6 +199,352 @@ try {
   Write-Step "My dishes: delete"
   $delMy = Invoke-Json DELETE "$BaseUrl/api/my-dishes/$personalId" $token
   Assert-True ($delMy.success -eq $true) "DELETE /api/my-dishes/{id} should succeed"
+
+  # -----------------------
+  # COMMENTS (post flow)
+  # -----------------------
+  Write-Step "Comments: create post for test"
+  $commentPostBody = @{
+    postType = "recipe"
+    title = "Comment Regression $((Get-Random -Minimum 1000 -Maximum 9999))"
+    content = "Post used for comment API regression"
+  }
+  $commentPost = Invoke-Json POST "$BaseUrl/api/posts" $token $commentPostBody
+  Assert-True ($commentPost.success -eq $true) "POST /api/posts should succeed for comment regression"
+  $commentPostId = [int]$commentPost.data.id
+  Assert-True ($commentPostId -gt 0) "Created post should have id"
+
+  Write-Step "Comments: add 3 top-level comments"
+  $commentTexts = @(
+    "Comment #1 from regression",
+    "Comment #2 from regression",
+    "Comment #3 from regression"
+  )
+  $topLevelCommentIds = @()
+  foreach ($text in $commentTexts) {
+    $newComment = Invoke-Json POST "$BaseUrl/api/posts/$commentPostId/comments" $token @{ content = $text }
+    Assert-True ($newComment.success -eq $true) "POST /api/posts/{postId}/comments should succeed"
+    Assert-True ($newComment.data.postId -eq $commentPostId) "Created comment should belong to target post"
+    Assert-True ($null -eq $newComment.data.parentCommentId) "Top-level comment should have parentCommentId=null"
+    $topLevelCommentIds += [int]$newComment.data.id
+  }
+
+  Write-Step "Comments: verify pagination page=1 limit=2"
+  $commentsPage1 = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId/comments?page=1&limit=2" $token
+  Assert-True ($commentsPage1.success -eq $true) "GET comments page 1 should succeed"
+  Assert-True ($commentsPage1.data.page -eq 1) "Comments page should be 1"
+  Assert-True ($commentsPage1.data.limit -eq 2) "Comments limit should be 2"
+  Assert-True ($commentsPage1.data.total -eq 3) "Comments total should be 3"
+  Assert-True ((@($commentsPage1.data.data).Count) -eq 2) "Comments page 1 should contain 2 items"
+
+  Write-Step "Comments: verify pagination page=2 limit=2"
+  $commentsPage2 = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId/comments?page=2&limit=2" $token
+  Assert-True ($commentsPage2.success -eq $true) "GET comments page 2 should succeed"
+  Assert-True ($commentsPage2.data.page -eq 2) "Comments page should be 2"
+  Assert-True ($commentsPage2.data.limit -eq 2) "Comments limit should be 2"
+  Assert-True ($commentsPage2.data.total -eq 3) "Comments total should stay 3"
+  Assert-True ((@($commentsPage2.data.data).Count) -eq 1) "Comments page 2 should contain 1 item"
+
+  Write-Step "Comments: add 1 reply (level 2)"
+  $parentCommentId = [int]$topLevelCommentIds[0]
+  $newReply = Invoke-Json POST "$BaseUrl/api/posts/$commentPostId/comments" $token @{ content = "Reply #1 from regression"; parentCommentId = $parentCommentId }
+  Assert-True ($newReply.success -eq $true) "POST reply should succeed"
+  Assert-True ([int]$newReply.data.postId -eq $commentPostId) "Reply should belong to target post"
+  Assert-True ([int]$newReply.data.parentCommentId -eq $parentCommentId) "Reply should point to parent comment"
+  Assert-True ([int]$newReply.data.depth -eq 1) "Reply depth should be 1"
+  $replyId = [int]$newReply.data.id
+
+  Write-Step "Comments: top-level list should expose replyCount"
+  $topLevelAll = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId/comments?page=1&limit=20" $token
+  Assert-True ($topLevelAll.success -eq $true) "GET top-level comments should succeed"
+  Assert-True ($topLevelAll.data.total -eq 3) "Top-level total should remain 3"
+  $parentInTopLevel = @($topLevelAll.data.data | Where-Object { [int]$_.id -eq $parentCommentId })
+  Assert-True ($parentInTopLevel.Count -eq 1) "Parent comment should exist in top-level list"
+  Assert-True ([int]$parentInTopLevel[0].replyCount -eq 1) "Parent replyCount should be updated"
+
+  Write-Step "Comments: get replies by parent comment"
+  $replies = Invoke-Json GET "$BaseUrl/api/comments/$parentCommentId/replies?page=1&limit=10" $token
+  Assert-True ($replies.success -eq $true) "GET /api/comments/{commentId}/replies should succeed"
+  Assert-True ($replies.data.total -eq 1) "Replies total should be 1"
+  Assert-True ((@($replies.data.data).Count) -eq 1) "Replies list should contain 1 item"
+  Assert-True ([int]$replies.data.data[0].parentCommentId -eq $parentCommentId) "Reply item should keep correct parentCommentId"
+
+  Write-Step "Comments: level-3 reply should be rejected"
+  $level3Reply = Invoke-Raw POST "$BaseUrl/api/posts/$commentPostId/comments" $token @{ content = "Level 3 should fail"; parentCommentId = $replyId }
+  Assert-True ($level3Reply.StatusCode -eq 400) "Creating level-3 reply should return 400"
+
+  Write-Step "Comments: reply with parent from another post should be rejected"
+  $crossPostBody = @{
+    postType = "recipe"
+    title = "Cross Reply Validation $((Get-Random -Minimum 1000 -Maximum 9999))"
+    content = "Post used for cross-reply validation"
+  }
+  $crossPost = Invoke-Json POST "$BaseUrl/api/posts" $token $crossPostBody
+  Assert-True ($crossPost.success -eq $true) "Create cross-validation post should succeed"
+  $crossPostId = [int]$crossPost.data.id
+
+  $crossReply = Invoke-Raw POST "$BaseUrl/api/posts/$crossPostId/comments" $token @{ content = "Cross post reply should fail"; parentCommentId = $parentCommentId }
+  Assert-True ($crossReply.StatusCode -eq 400) "Reply with parent in another post should return 400"
+
+  $deleteCrossPost = Invoke-Json DELETE "$BaseUrl/api/posts/$crossPostId" $token
+  Assert-True ($deleteCrossPost.success -eq $true) "Cleanup cross-validation post should succeed"
+
+  Write-Step "Comments: verify post comment_count"
+  $postAfterComments = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId" $token
+  Assert-True ($postAfterComments.success -eq $true) "GET /api/posts/{id} should succeed"
+  Assert-True ($postAfterComments.data.commentCount -eq 4) "post.commentCount should include top-level + replies"
+
+  Write-Step "Comments: delete reply and verify counts rollback"
+  $deleteReply = Invoke-Json DELETE "$BaseUrl/api/comments/$replyId" $token
+  Assert-True ($deleteReply.success -eq $true) "DELETE /api/comments/{commentId} should succeed"
+  Assert-True ($deleteReply.data.deleted -eq $true) "Delete reply result should be true"
+  Assert-True ($deleteReply.data.deletedCount -eq 1) "Deleting 1 reply should report deletedCount=1"
+
+  $postAfterDeleteReply = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId" $token
+  Assert-True ($postAfterDeleteReply.success -eq $true) "GET post after reply delete should succeed"
+  Assert-True ($postAfterDeleteReply.data.commentCount -eq 3) "post.commentCount should decrease after deleting reply"
+
+  $topLevelAfterDeleteReply = Invoke-Json GET "$BaseUrl/api/posts/$commentPostId/comments?page=1&limit=20" $token
+  $parentAfterDeleteReply = @($topLevelAfterDeleteReply.data.data | Where-Object { [int]$_.id -eq $parentCommentId })
+  Assert-True ($parentAfterDeleteReply.Count -eq 1) "Parent should remain after deleting reply"
+  Assert-True ([int]$parentAfterDeleteReply[0].replyCount -eq 0) "Parent replyCount should decrement after deleting reply"
+
+  Write-Step "Comments: blank content should be rejected"
+  $blankComment = Invoke-Raw POST "$BaseUrl/api/posts/$commentPostId/comments" $token @{ content = "   " }
+  Assert-True ($blankComment.StatusCode -eq 400) "Blank comment content should return 400"
+
+  Write-Step "Comments: cleanup created post"
+  $deleteCommentPost = Invoke-Json DELETE "$BaseUrl/api/posts/$commentPostId" $token
+  Assert-True ($deleteCommentPost.success -eq $true) "DELETE created comment regression post should succeed"
+
+  # -----------------------
+  # PUBLIC PROFILE + FOLLOW STATE
+  # -----------------------
+  Write-Step "Public profile: register secondary user"
+  $profileSuffix = (Get-Random -Minimum 10000 -Maximum 99999)
+  $profileUsername = "api_profile_$profileSuffix"
+  $profilePassword = "password123"
+  $profileFullName = "Profile Target $profileSuffix"
+
+  $profileRegister = Invoke-Json POST "$BaseUrl/api/auth/register" $null @{
+    username = $profileUsername
+    password = $profilePassword
+    fullName = $profileFullName
+  }
+  Assert-True ($profileRegister.success -eq $true) "Register secondary profile user should succeed"
+  $profileUserId = [int]$profileRegister.data.user.id
+  $profileUserToken = $profileRegister.data.token
+  Assert-True ($profileUserId -gt 0) "Secondary profile user id should be valid"
+  Assert-True ($profileUserToken) "Secondary profile user token should exist"
+
+  Write-Step "Public profile: create post as secondary user"
+  $profilePost = Invoke-Json POST "$BaseUrl/api/posts" $profileUserToken @{
+    postType = "recipe"
+    title = "Profile Regression Post $profileSuffix"
+    content = "Post used for public profile regression"
+  }
+  Assert-True ($profilePost.success -eq $true) "Secondary user should create post successfully"
+  $profilePostId = [int]$profilePost.data.id
+  Assert-True ($profilePostId -gt 0) "Secondary profile post id should be valid"
+
+  Write-Step "Public profile: like secondary post from primary user"
+  $profileLike = Invoke-Json POST "$BaseUrl/api/posts/$profilePostId/like" $token
+  Assert-True ($profileLike.success -eq $true) "Primary user should like secondary post"
+  Assert-True ($profileLike.data.isLiked -eq $true) "Secondary post should be liked"
+
+  Write-Step "Public profile: unauthenticated profile read"
+  $publicProfileUnauth = Invoke-Json GET "$BaseUrl/api/users/$profileUserId/profile"
+  Assert-True ($publicProfileUnauth.success -eq $true) "GET /api/users/{userId}/profile without token should succeed"
+  Assert-True ([int]$publicProfileUnauth.data.id -eq $profileUserId) "Unauth profile should return correct user"
+  Assert-True ($publicProfileUnauth.data.postCount -ge 1) "Unauth profile postCount should be at least 1"
+  Assert-True ($publicProfileUnauth.data.totalReceivedLikes -ge 1) "Unauth profile totalReceivedLikes should be at least 1"
+  Assert-True ($null -eq $publicProfileUnauth.data.isFollowing) "Unauth profile isFollowing should be null"
+
+  Write-Step "Public profile: authenticated read before follow"
+  $publicProfileBeforeFollow = Invoke-Json GET "$BaseUrl/api/users/$profileUserId/profile" $token
+  Assert-True ($publicProfileBeforeFollow.success -eq $true) "Authenticated profile read should succeed"
+  Assert-True ($publicProfileBeforeFollow.data.isFollowing -eq $false) "Before follow, isFollowing should be false"
+  $beforeFollowerCount = [int]$publicProfileBeforeFollow.data.followerCount
+
+  Write-Step "Public profile: follow secondary user and verify state"
+  $followProfileUser = Invoke-Json POST "$BaseUrl/api/users/$profileUserId/follow" $token
+  Assert-True ($followProfileUser.success -eq $true) "Follow secondary profile user should succeed"
+  Assert-True ($followProfileUser.data.isFollowing -eq $true) "Follow result should set isFollowing=true"
+
+  $publicProfileAfterFollow = Invoke-Json GET "$BaseUrl/api/users/$profileUserId/profile" $token
+  Assert-True ($publicProfileAfterFollow.success -eq $true) "Authenticated profile read after follow should succeed"
+  Assert-True ($publicProfileAfterFollow.data.isFollowing -eq $true) "After follow, isFollowing should be true"
+  Assert-True ([int]$publicProfileAfterFollow.data.followerCount -eq [int]$followProfileUser.data.followerCount) "Profile followerCount should match follow API"
+  Assert-True ([int]$publicProfileAfterFollow.data.followerCount -ge ($beforeFollowerCount + 1)) "Follower count should increase after follow"
+  Assert-True ([int]$publicProfileAfterFollow.data.postCount -ge 1) "Profile postCount should remain valid"
+  Assert-True ([int]$publicProfileAfterFollow.data.totalReceivedLikes -ge 1) "Profile totalReceivedLikes should remain valid"
+
+  Write-Step "Public profile: invalid userId and not found checks"
+  $invalidProfile = Invoke-Raw GET "$BaseUrl/api/users/0/profile"
+  Assert-True ($invalidProfile.StatusCode -eq 400) "GET /api/users/0/profile should return 400"
+
+  $missingProfile = Invoke-Raw GET "$BaseUrl/api/users/2147483647/profile"
+  Assert-True ($missingProfile.StatusCode -eq 404) "GET /api/users/{missingId}/profile should return 404"
+
+  Write-Step "Public profile: cleanup follow + post"
+  $unfollowProfileUser = Invoke-Json POST "$BaseUrl/api/users/$profileUserId/follow" $token
+  Assert-True ($unfollowProfileUser.success -eq $true) "Unfollow secondary profile user should succeed"
+  Assert-True ($unfollowProfileUser.data.isFollowing -eq $false) "Unfollow result should set isFollowing=false"
+
+  $cleanupUnlike = Invoke-Json POST "$BaseUrl/api/posts/$profilePostId/like" $token
+  Assert-True ($cleanupUnlike.success -eq $true) "Cleanup unlike should succeed"
+  Assert-True ($cleanupUnlike.data.isLiked -eq $false) "Cleanup unlike should set isLiked=false"
+
+  $cleanupProfilePost = Invoke-Json DELETE "$BaseUrl/api/posts/$profilePostId" $profileUserToken
+  Assert-True ($cleanupProfilePost.success -eq $true) "Cleanup secondary profile post should succeed"
+
+  # -----------------------
+  # FAMILY + MENU + VOTE
+  # -----------------------
+  Write-Step "Family: register secondary user for invite"
+  $familySuffix = (Get-Random -Minimum 10000 -Maximum 99999)
+  $familyUsername = "api_family_$familySuffix"
+  $familyPassword = "password123"
+  $familyFullName = "Family Member $familySuffix"
+
+  $familyRegister = Invoke-Json POST "$BaseUrl/api/auth/register" $null @{
+    username = $familyUsername
+    password = $familyPassword
+    fullName = $familyFullName
+  }
+  Assert-True ($familyRegister.success -eq $true) "Register family secondary user should succeed"
+  $familyMemberUserId = [int]$familyRegister.data.user.id
+  $familyMemberToken = $familyRegister.data.token
+  Assert-True ($familyMemberUserId -gt 0) "Family secondary user id should be valid"
+  Assert-True ($familyMemberToken) "Family secondary user token should exist"
+
+  Write-Step "Family: create group"
+  $familyName = "Family Regression $familySuffix"
+  $createdFamily = Invoke-Json POST "$BaseUrl/api/families" $token @{ name = $familyName }
+  Assert-True ($createdFamily.success -eq $true) "POST /api/families should succeed"
+  $familyId = [int]$createdFamily.data.id
+  Assert-True ($familyId -gt 0) "Created family id should be valid"
+  Assert-True ($createdFamily.data.name -eq $familyName) "Created family name should match"
+
+  Write-Step "Family: list my families should include created group"
+  $myFamilies = Invoke-Json GET "$BaseUrl/api/families" $token
+  Assert-True ($myFamilies.success -eq $true) "GET /api/families should succeed"
+  $familyInList = @($myFamilies.data | Where-Object { [int]$_.id -eq $familyId })
+  Assert-True ($familyInList.Count -eq 1) "Created family should appear in owner's family list"
+
+  Write-Step "Family: rename group"
+  $renamedFamilyName = "$familyName (Renamed)"
+  $renamedFamily = Invoke-Json PUT "$BaseUrl/api/families/$familyId" $token @{ name = $renamedFamilyName }
+  Assert-True ($renamedFamily.success -eq $true) "PUT /api/families/{familyId} should succeed"
+  Assert-True ($renamedFamily.data.name -eq $renamedFamilyName) "Renamed family name should match"
+
+  Write-Step "Family: members should include owner initially"
+  $familyMembersBeforeInvite = Invoke-Json GET "$BaseUrl/api/families/$familyId/members" $token
+  Assert-True ($familyMembersBeforeInvite.success -eq $true) "GET /api/families/{familyId}/members should succeed"
+  $ownerMemberRow = @($familyMembersBeforeInvite.data | Where-Object { [int]$_.userId -eq [int]$login.data.user.id })
+  Assert-True ($ownerMemberRow.Count -eq 1) "Owner should be in family member list"
+  Assert-True ($ownerMemberRow[0].role -eq "owner") "Owner role should be owner"
+
+  Write-Step "Family: invite member"
+  $addedFamilyMember = Invoke-Json POST "$BaseUrl/api/families/$familyId/members" $token @{ userId = $familyMemberUserId }
+  Assert-True ($addedFamilyMember.success -eq $true) "POST /api/families/{familyId}/members should succeed"
+  Assert-True ([int]$addedFamilyMember.data.userId -eq $familyMemberUserId) "Added member userId should match"
+
+  Write-Step "Family: invited member should see family in their list"
+  $memberFamilies = Invoke-Json GET "$BaseUrl/api/families" $familyMemberToken
+  Assert-True ($memberFamilies.success -eq $true) "Invited member GET /api/families should succeed"
+  $familyInMemberList = @($memberFamilies.data | Where-Object { [int]$_.id -eq $familyId })
+  Assert-True ($familyInMemberList.Count -eq 1) "Invited member should see family in list"
+
+  Write-Step "Family: create menu"
+  $menuDateObj = (Get-Date).Date.AddDays(1)
+  $menuDate = $menuDateObj.ToString("yyyy-MM-dd")
+  $createdMenu = Invoke-Json POST "$BaseUrl/api/families/$familyId/menus" $token @{
+    menuDate = $menuDate
+    mealType = "dinner"
+    status = "voting"
+  }
+  Assert-True ($createdMenu.success -eq $true) "POST /api/families/{familyId}/menus should succeed"
+  $familyMenuId = [int]$createdMenu.data.id
+  Assert-True ($familyMenuId -gt 0) "Created family menu id should be valid"
+
+  Write-Step "Family: add menu item by dishId"
+  $createdMenuItem = Invoke-Json POST "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items" $token @{
+    dishId = $dishId
+    note = "Family menu regression item"
+  }
+  Assert-True ($createdMenuItem.success -eq $true) "POST /api/families/{familyId}/menus/{menuId}/items should succeed"
+  $familyMenuItemId = [int]$createdMenuItem.data.id
+  Assert-True ($familyMenuItemId -gt 0) "Created family menu item id should be valid"
+
+  Write-Step "Family: weekly menus should include created menu and item"
+  $dayOffsetToMonday = (([int]$menuDateObj.DayOfWeek + 6) % 7)
+  $weekStart = $menuDateObj.AddDays(-$dayOffsetToMonday).ToString("yyyy-MM-dd")
+  $weeklyMenus = Invoke-Json GET "$BaseUrl/api/families/$familyId/menus/week?weekStart=$weekStart" $token
+  Assert-True ($weeklyMenus.success -eq $true) "GET /api/families/{familyId}/menus/week should succeed"
+  $menuInWeek = @($weeklyMenus.data | Where-Object { [int]$_.menu.id -eq $familyMenuId })
+  Assert-True ($menuInWeek.Count -eq 1) "Weekly menus should include created menu"
+  $itemInWeek = @($menuInWeek[0].items | Where-Object { [int]$_.id -eq $familyMenuItemId })
+  Assert-True ($itemInWeek.Count -eq 1) "Weekly menu items should include created item"
+
+  Write-Step "Family Vote: member vote up"
+  $memberVoteUp = Invoke-Json POST "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items/$familyMenuItemId/vote" $familyMemberToken @{ voteType = "up" }
+  Assert-True ($memberVoteUp.success -eq $true) "Member vote up should succeed"
+  Assert-True ($memberVoteUp.data.voted -eq $true) "Vote result should indicate voted=true"
+  Assert-True ($memberVoteUp.data.voteType -eq "up") "Vote type should be up"
+  Assert-True ([int]$memberVoteUp.data.upVotes -eq 1) "upVotes should be 1 after first member vote"
+
+  Write-Step "Family Vote: owner vote down"
+  $ownerVoteDown = Invoke-Json POST "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items/$familyMenuItemId/vote" $token @{ voteType = "down" }
+  Assert-True ($ownerVoteDown.success -eq $true) "Owner vote down should succeed"
+  Assert-True ($ownerVoteDown.data.voted -eq $true) "Owner vote result should indicate voted=true"
+  Assert-True ($ownerVoteDown.data.voteType -eq "down") "Owner vote type should be down"
+  Assert-True ([int]$ownerVoteDown.data.downVotes -eq 1) "downVotes should be 1 after owner vote"
+
+  Write-Step "Family Vote: summary by owner/member perspective"
+  $voteSummaryOwner = Invoke-Json GET "$BaseUrl/api/families/$familyId/menus/$familyMenuId/votes" $token
+  Assert-True ($voteSummaryOwner.success -eq $true) "GET vote summary as owner should succeed"
+  $ownerSummaryRow = @($voteSummaryOwner.data | Where-Object { [int]$_.familyMenuItemId -eq $familyMenuItemId })
+  Assert-True ($ownerSummaryRow.Count -eq 1) "Vote summary should include current menu item"
+  Assert-True ([int]$ownerSummaryRow[0].upVotes -eq 1) "Owner summary upVotes should be 1"
+  Assert-True ([int]$ownerSummaryRow[0].downVotes -eq 1) "Owner summary downVotes should be 1"
+  Assert-True ($ownerSummaryRow[0].userVoteType -eq "down") "Owner userVoteType should be down"
+
+  $voteSummaryMember = Invoke-Json GET "$BaseUrl/api/families/$familyId/menus/$familyMenuId/votes" $familyMemberToken
+  Assert-True ($voteSummaryMember.success -eq $true) "GET vote summary as member should succeed"
+  $memberSummaryRow = @($voteSummaryMember.data | Where-Object { [int]$_.familyMenuItemId -eq $familyMenuItemId })
+  Assert-True ($memberSummaryRow.Count -eq 1) "Member summary should include current menu item"
+  Assert-True ($memberSummaryRow[0].userVoteType -eq "up") "Member userVoteType should be up"
+
+  Write-Step "Family Vote: member unvote"
+  $memberUnvote = Invoke-Json DELETE "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items/$familyMenuItemId/vote" $familyMemberToken
+  Assert-True ($memberUnvote.success -eq $true) "Member unvote should succeed"
+  Assert-True ($memberUnvote.data.voted -eq $false) "After unvote, voted should be false"
+  Assert-True ($null -eq $memberUnvote.data.voteType) "After unvote, voteType should be null"
+  Assert-True ([int]$memberUnvote.data.upVotes -eq 0) "After member unvote, upVotes should be 0"
+  Assert-True ([int]$memberUnvote.data.downVotes -eq 1) "After member unvote, downVotes should remain 1"
+
+  Write-Step "Family: remove menu item"
+  $removeMenuItem = Invoke-Json DELETE "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items/$familyMenuItemId" $token
+  Assert-True ($removeMenuItem.success -eq $true) "DELETE /api/families/{familyId}/menus/{menuId}/items/{itemId} should succeed"
+
+  $voteSummaryAfterItemRemoval = Invoke-Json GET "$BaseUrl/api/families/$familyId/menus/$familyMenuId/votes" $token
+  Assert-True ($voteSummaryAfterItemRemoval.success -eq $true) "GET vote summary after removing item should succeed"
+  $removedItemSummary = @($voteSummaryAfterItemRemoval.data | Where-Object { [int]$_.familyMenuItemId -eq $familyMenuItemId })
+  Assert-True ($removedItemSummary.Count -eq 0) "Removed menu item should no longer appear in vote summary"
+
+  Write-Step "Family: member leaves family"
+  $memberLeaveFamily = Invoke-Json DELETE "$BaseUrl/api/families/$familyId/leave" $familyMemberToken
+  Assert-True ($memberLeaveFamily.success -eq $true) "Member leave family should succeed"
+
+  $familyMembersAfterLeave = Invoke-Json GET "$BaseUrl/api/families/$familyId/members" $token
+  Assert-True ($familyMembersAfterLeave.success -eq $true) "Owner should still load members after member leaves"
+  $leftMemberRow = @($familyMembersAfterLeave.data | Where-Object { [int]$_.userId -eq $familyMemberUserId })
+  Assert-True ($leftMemberRow.Count -eq 0) "Member should be removed from family after leave"
+
+  Write-Step "Family: owner leave should be rejected"
+  $ownerLeaveRaw = Invoke-Raw DELETE "$BaseUrl/api/families/$familyId/leave" $token
+  Assert-True ($ownerLeaveRaw.StatusCode -eq 409) "Owner leave family should return 409"
 
   Write-Host "`n========================================" -ForegroundColor Green
   Write-Host "ALL TESTS PASSED" -ForegroundColor Green

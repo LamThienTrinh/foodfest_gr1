@@ -1,5 +1,6 @@
 package com.foodfest.app.features.auth
 
+import com.foodfest.app.core.exception.AppException
 import com.foodfest.app.services.CloudinaryService
 import com.foodfest.app.utils.JWTConfig
 import kotlinx.serialization.Serializable
@@ -142,6 +143,22 @@ class AuthService(
             Result.success(user)
         } catch (e: Exception) {
             println(" Get profile error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPublicProfile(userId: Int, currentUserId: Int?): Result<PublicUserProfile> {
+        return try {
+            if (userId <= 0) {
+                return Result.failure(IllegalArgumentException("Invalid user id"))
+            }
+
+            val profile = authRepository.getPublicProfile(userId, currentUserId)
+                ?: return Result.failure(AppException.NotFound("User not found"))
+
+            Result.success(profile)
+        } catch (e: Exception) {
+            println(" Get public profile error: ${e.message}")
             Result.failure(e)
         }
     }

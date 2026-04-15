@@ -18,7 +18,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,8 +28,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.foodfest.app.features.auth.data.User
+import com.foodfest.app.features.favorite.data.FavoriteRepository
+import com.foodfest.app.features.home.data.PostRepository
+import com.foodfest.app.features.personaldish.data.PersonalDishRepository
 import com.foodfest.app.theme.AppColors
-import com.foodfest.app.core.storage.TokenManager
 import foodfest.composeapp.generated.resources.Res
 import foodfest.composeapp.generated.resources.default_avatar
 import org.jetbrains.compose.resources.painterResource
@@ -41,10 +43,38 @@ fun ProfileScreen(
     onNavigateToEditProfile: () -> Unit = {},
     onNavigateToFavorites: () -> Unit = {},
     onNavigateToMyDishes: () -> Unit = {},
+    onNavigateToMyPosts: () -> Unit = {},
     onNavigateToDishUpload: () -> Unit = {},
     onNavigateToSavedPosts: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
+    val favoriteRepository = remember { FavoriteRepository() }
+    val personalDishRepository = remember { PersonalDishRepository() }
+    val postRepository = remember { PostRepository() }
+
+    var favoriteCount by remember(user?.id) { mutableStateOf<Int?>(null) }
+    var savedDishesCount by remember(user?.id) { mutableStateOf<Int?>(null) }
+    var savedPostsCount by remember(user?.id) { mutableStateOf<Int?>(null) }
+    var myPostsCount by remember(user?.id) { mutableStateOf<Int?>(null) }
+    var countsLoading by remember(user?.id) { mutableStateOf(false) }
+
+    LaunchedEffect(user?.id) {
+        if (user == null) {
+            favoriteCount = null
+            savedDishesCount = null
+            savedPostsCount = null
+            myPostsCount = null
+            countsLoading = false
+            return@LaunchedEffect
+        }
+
+        countsLoading = true
+        favoriteCount = favoriteRepository.getFavorites(page = 1).getOrNull()?.total
+        savedDishesCount = personalDishRepository.getMyDishes(page = 1).getOrNull()?.total
+        savedPostsCount = postRepository.getSavedPosts(page = 1, limit = 10).getOrNull()?.total
+        myPostsCount = postRepository.getUserPosts(userId = user.id, page = 1, limit = 1).getOrNull()?.total
+        countsLoading = false
+    }
 
     Column(
         modifier = Modifier
@@ -66,32 +96,60 @@ fun ProfileScreen(
         Column(
             modifier = Modifier.padding(horizontal = 16.dp)
         ) {
-            // Favorites
+            ProfileSectionHeader(
+                title = "Nội dung đã lưu",
+                subtitle = "3 nhóm nội dung cá nhân của bạn"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             ProfileMenuItem(
                 icon = Icons.Default.Favorite,
                 title = "Yêu thích",
                 subtitle = "Món ăn yêu thích",
+                count = favoriteCount,
+                isCountLoading = countsLoading && favoriteCount == null,
                 onClick = onNavigateToFavorites
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // My Dishes - Personal saved dishes
             ProfileMenuItem(
                 icon = Icons.Default.Restaurant,
                 title = "Món đã lưu",
                 subtitle = "Công thức đã lưu của bạn",
+                count = savedDishesCount,
+                isCountLoading = countsLoading && savedDishesCount == null,
                 onClick = onNavigateToMyDishes
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Saved Posts
             ProfileMenuItem(
                 icon = Icons.Default.Bookmark,
                 title = "Bài đăng đã lưu",
                 subtitle = "Các bài đăng bạn đã lưu",
+                count = savedPostsCount,
+                isCountLoading = countsLoading && savedPostsCount == null,
                 onClick = onNavigateToSavedPosts
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ProfileMenuItem(
+                icon = Icons.Default.Edit,
+                title = "Bài đăng của tôi",
+                subtitle = "Lịch sử bài đăng bạn đã tạo",
+                count = myPostsCount,
+                isCountLoading = countsLoading && myPostsCount == null,
+                onClick = onNavigateToMyPosts
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            ProfileSectionHeader(
+                title = "Công cụ",
+                subtitle = "Các thao tác quản lý nội dung"
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -131,6 +189,27 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun ProfileSectionHeader(
+    title: String,
+    subtitle: String
+) {
+    Column {
+        Text(
+            text = title,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = AppColors.TextPrimary
+        )
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(
+            text = subtitle,
+            fontSize = 12.sp,
+            color = AppColors.TextSecondary
+        )
     }
 }
 
@@ -231,6 +310,8 @@ private fun ProfileMenuItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    count: Int? = null,
+    isCountLoading: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
@@ -282,6 +363,30 @@ private fun ProfileMenuItem(
                     fontSize = 12.sp,
                     color = AppColors.GrayPlaceholder
                 )
+            }
+
+            if (isCountLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .padding(end = 8.dp),
+                    color = AppColors.Orange,
+                    strokeWidth = 2.dp
+                )
+            } else if (count != null) {
+                Surface(
+                    color = AppColors.Orange.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(999.dp),
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Text(
+                        text = count.toString(),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = AppColors.Orange
+                    )
+                }
             }
 
             // Arrow icon (Đã fix dùng AutoMirrored)

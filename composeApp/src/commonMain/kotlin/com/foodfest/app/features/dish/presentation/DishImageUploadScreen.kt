@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
 
 @OptIn(ExperimentalEncodingApi::class)
 private fun ByteArray.toBase64(): String {
@@ -199,7 +200,7 @@ fun DishImageUploadScreen(
                             when {
                                 path.contains("/") -> path.substringAfterLast("/")
                                 path.contains("\\") -> path.substringAfterLast("\\")
-                                else -> "image_${System.currentTimeMillis()}.jpg"
+                                else -> "image_${Random.nextInt(100000, 999999)}.jpg"
                             }
                         }
                         selectedFileName = fileName

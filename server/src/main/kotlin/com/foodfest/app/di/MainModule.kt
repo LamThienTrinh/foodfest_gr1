@@ -4,6 +4,8 @@ import com.foodfest.app.features.auth.AuthRepository
 import com.foodfest.app.features.auth.AuthService
 import com.foodfest.app.features.dish.DishRepository
 import com.foodfest.app.features.dish.DishService
+import com.foodfest.app.features.family.FamilyRepository
+import com.foodfest.app.features.family.FamilyService
 import com.foodfest.app.features.favorite.FavoriteRepository
 import com.foodfest.app.features.favorite.FavoriteService
 import com.foodfest.app.features.follow.FollowRepository
@@ -44,4 +46,8 @@ val mainModule = module {
     // Follow feature
     single { FollowRepository() }
     single { FollowService(get()) }
+
+    // Family feature
+    single { FamilyRepository() }
+    single { FamilyService(get()) }
 }

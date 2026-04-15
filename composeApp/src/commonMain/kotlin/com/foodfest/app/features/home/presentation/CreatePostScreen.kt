@@ -29,6 +29,7 @@ import com.foodfest.app.utils.resizeImage
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
@@ -78,7 +79,7 @@ fun CreatePostScreen(
                         when {
                             path.contains("/") -> path.substringAfterLast("/")
                             path.contains("\\") -> path.substringAfterLast("\\")
-                            else -> "image_${System.currentTimeMillis()}.jpg"
+                            else -> "image_${Random.nextInt(100000, 999999)}.jpg"
                         }
                     }
                     selectedFileName = fileName

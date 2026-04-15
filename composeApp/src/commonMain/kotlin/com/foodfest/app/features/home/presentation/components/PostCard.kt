@@ -33,9 +33,13 @@ import org.jetbrains.compose.resources.painterResource
 fun PostCard(
     post: Post,
     onLikeClick: () -> Unit,
-    // onCommentClick: () -> Unit,
+    onCommentClick: () -> Unit,
     onSaveClick: () -> Unit,
     onUserClick: () -> Unit = {},
+    showFollowButton: Boolean = false,
+    isFollowingAuthor: Boolean = false,
+    isFollowLoading: Boolean = false,
+    onFollowClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -49,15 +53,15 @@ fun PostCard(
         ) {
             // User info row
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable(onClick = onUserClick)
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 // Avatar
                 Box(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(CircleShape)
-                        .background(AppColors.Orange.copy(alpha = 0.2f)),
+                        .background(AppColors.Orange.copy(alpha = 0.2f))
+                        .clickable(onClick = onUserClick),
                     contentAlignment = Alignment.Center
                 ) {
                     Image(
@@ -71,7 +75,11 @@ fun PostCard(
                 
                 Spacer(modifier = Modifier.width(12.dp))
                 
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(onClick = onUserClick)
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -90,6 +98,27 @@ fun PostCard(
                         fontSize = 12.sp,
                         color = AppColors.GrayPlaceholder
                     )
+                }
+
+                if (showFollowButton) {
+                    TextButton(
+                        onClick = onFollowClick,
+                        enabled = !isFollowLoading
+                    ) {
+                        if (isFollowLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                color = AppColors.Orange,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                text = if (isFollowingAuthor) "Đang theo dõi" else "Theo dõi",
+                                color = if (isFollowingAuthor) AppColors.GrayPlaceholder else AppColors.Orange,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
                 }
                 
                 // Save button
@@ -178,25 +207,25 @@ fun PostCard(
                 }
                 
                 // Comment button
-            //     Row(
-            //         modifier = Modifier
-            //             .clickable(onClick = onCommentClick)
-            //             .padding(horizontal = 16.dp, vertical = 8.dp),
-            //         verticalAlignment = Alignment.CenterVertically
-            //     ) {
-            //         Icon(
-            //             imageVector = Icons.Filled.ChatBubbleOutline,
-            //             contentDescription = "Bình luận",
-            //             tint = AppColors.GrayPlaceholder,
-            //             modifier = Modifier.size(20.dp)
-            //         )
-            //         Spacer(modifier = Modifier.width(6.dp))
-            //         Text(
-            //             text = if (post.commentCount > 0) "${post.commentCount} Bình luận" else "Bình luận",
-            //             fontSize = 13.sp,
-            //             color = AppColors.GrayPlaceholder
-            //         )
-//                 }
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onCommentClick)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ChatBubbleOutline,
+                        contentDescription = "Bình luận",
+                        tint = AppColors.GrayPlaceholder,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${post.commentCount} Bình luận",
+                        fontSize = 13.sp,
+                        color = AppColors.GrayPlaceholder
+                    )
+                }
              }
         }
     }

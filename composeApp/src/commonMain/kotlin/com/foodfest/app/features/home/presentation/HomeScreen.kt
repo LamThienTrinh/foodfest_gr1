@@ -12,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.foodfest.app.features.home.presentation.components.*
+import com.foodfest.app.features.home.presentation.models.HomeFeedMode
 import com.foodfest.app.theme.AppColors
 import kotlinx.coroutines.launch
 
@@ -21,7 +22,7 @@ fun HomeScreen(
     viewModel: HomeViewModel = remember { HomeViewModel() },
     onNavigateToSearch: () -> Unit = {},
     onNavigateToCreatePost: () -> Unit = {},
-    // onNavigateToComments: (Int) -> Unit = {},
+    currentUserId: Int? = null,
     onNavigateToUserProfile: (Int) -> Unit = {}
 ) {
     val state = viewModel.state
@@ -86,6 +87,21 @@ fun HomeScreen(
                     contentPadding = PaddingValues(vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Feed mode selector
+                    item {
+                        FeedModeSelector(
+                            selectedMode = state.feedMode,
+                            onModeSelected = { mode ->
+                                scope.launch {
+                                    viewModel.updateFeedMode(mode)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                        )
+                    }
+
                     // Search bar
                     item {
                         PostSearchBar(
@@ -134,6 +150,16 @@ fun HomeScreen(
                     if (state.posts.isEmpty() && !state.isLoading) {
                         item {
                             EmptyPostsState(
+                                title = if (state.feedMode == HomeFeedMode.FOLLOWING) {
+                                    "Bạn chưa theo dõi ai hoặc chưa có bài viết mới"
+                                } else {
+                                    "Chưa có bài viết nào"
+                                },
+                                description = if (state.feedMode == HomeFeedMode.FOLLOWING) {
+                                    "Hãy theo dõi thêm người dùng để xem feed Following."
+                                } else {
+                                    "Hãy là người đầu tiên chia sẻ món ngon của bạn!"
+                                },
                                 onRefresh = {
                                     scope.launch {
                                         viewModel.refreshPosts()
@@ -145,6 +171,9 @@ fun HomeScreen(
                     
                     // Posts feed
                     items(state.posts, key = { it.id }) { post ->
+                        val isFollowingAuthor = state.authorFollowStates[post.userId]
+                            ?: (state.feedMode == HomeFeedMode.FOLLOWING)
+
                         PostCard(
                             post = post,
                             onLikeClick = {
@@ -152,9 +181,11 @@ fun HomeScreen(
                                     viewModel.likePost(post.id)
                                 }
                             },
-                            // onCommentClick = { 
-                            //     onNavigateToComments(post.id)
-                            // },
+                            onCommentClick = {
+                                scope.launch {
+                                    viewModel.openComments(post.id, post.commentCount)
+                                }
+                            },
                             onSaveClick = {
                                 scope.launch {
                                     viewModel.savePost(post.id)
@@ -162,6 +193,14 @@ fun HomeScreen(
                             },
                             onUserClick = {
                                 onNavigateToUserProfile(post.userId)
+                            },
+                            showFollowButton = currentUserId != null && post.userId != currentUserId,
+                            isFollowingAuthor = isFollowingAuthor,
+                            isFollowLoading = state.followLoadingAuthorIds.contains(post.userId),
+                            onFollowClick = {
+                                scope.launch {
+                                    viewModel.toggleFollowAuthor(post.userId)
+                                }
                             },
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
@@ -199,6 +238,51 @@ fun HomeScreen(
                         }
                 }
             }
+        }
+
+        if (state.isCommentSheetVisible) {
+            CommentBottomSheet(
+                comments = state.comments,
+                totalCommentCount = state.selectedPostCommentCount,
+                threadStates = state.commentThreadStates,
+                inputText = state.commentInput,
+                replyingToUserName = state.selectedReplyUserName,
+                isLoading = state.isCommentsLoading,
+                isSubmitting = state.isCommentSubmitting,
+                errorMessage = state.commentsErrorMessage,
+                onToggleThread = { comment ->
+                    scope.launch {
+                        viewModel.toggleCommentThread(comment)
+                    }
+                },
+                onReplyClick = { comment ->
+                    viewModel.startReply(comment)
+                },
+                onLoadMoreReplies = { parentCommentId ->
+                    scope.launch {
+                        viewModel.loadMoreReplies(parentCommentId)
+                    }
+                },
+                onInputTextChange = { input ->
+                    viewModel.updateCommentInput(input)
+                },
+                onCancelReply = {
+                    viewModel.cancelReply()
+                },
+                onSubmit = {
+                    scope.launch {
+                        viewModel.submitComment()
+                    }
+                },
+                onDismiss = {
+                    viewModel.closeComments()
+                },
+                onRetryLoad = {
+                    scope.launch {
+                        viewModel.retryLoadComments()
+                    }
+                }
+            )
         }
     }
 }

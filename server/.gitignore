@@ -25,3 +25,6 @@ out/
 # Temporary files
 *.tmp
 *.temp
+
+.github/
+*.ps1

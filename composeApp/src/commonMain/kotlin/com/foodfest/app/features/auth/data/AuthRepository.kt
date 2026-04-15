@@ -1,6 +1,7 @@
 package com.foodfest.app.features.auth.data
 
 import com.foodfest.app.core.network.NetworkClient
+import com.foodfest.app.core.storage.TokenManager
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
@@ -54,6 +55,19 @@ data class User(
 data class AuthResponse(
     val token: String,  // Backend trả token trước
     val user: User      
+)
+
+@Serializable
+data class PublicUserProfile(
+    val id: Int,
+    val username: String,
+    val fullName: String,
+    val avatarUrl: String? = null,
+    val followerCount: Int = 0,
+    val followingCount: Int = 0,
+    val postCount: Int = 0,
+    val totalReceivedLikes: Int = 0,
+    val isFollowing: Boolean? = null
 )
 
 // Response wrapper - khớp với ApiResponse của Backend
@@ -131,6 +145,27 @@ class AuthRepository {
             }
         } catch (e: Exception) {
             println(" GetProfile error: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getPublicProfile(userId: Int): Result<PublicUserProfile> {
+        return try {
+            val response = client.get("$baseUrl/api/users/$userId/profile") {
+                val token = TokenManager.getToken()
+                if (!token.isNullOrBlank()) {
+                    header("Authorization", "Bearer $token")
+                }
+            }
+
+            val result = response.body<ApiResponse<PublicUserProfile>>()
+            if (result.success && result.data != null) {
+                Result.success(result.data)
+            } else {
+                Result.failure(Exception(result.message ?: "Không thể lấy profile công khai"))
+            }
+        } catch (e: Exception) {
+            println(" GetPublicProfile error: ${e.message}")
             Result.failure(e)
         }
     }

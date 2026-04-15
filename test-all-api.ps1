@@ -1,232 +1,151 @@
-# Test All API Script for FoodFest
-$baseUrl = "http://127.0.0.1:8080"
+param(
+    [string]$BaseUrl = "http://127.0.0.1:8080"
+)
 
-Write-Host "============================================" -ForegroundColor Cyan
-Write-Host "       FOODFEST API TEST SCRIPT            " -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan
+$ErrorActionPreference = "Stop"
 
-# 1. LOGIN
-Write-Host "`n=== 1. LOGIN ===" -ForegroundColor Yellow
+function Write-Step($msg) {
+    Write-Host "`n=== $msg ===" -ForegroundColor Yellow
+}
+
+function Assert-True($condition, [string]$message) {
+    if (-not $condition) {
+        throw "ASSERT FAILED: $message"
+    }
+}
+
+function Invoke-Json($method, $url, $token = $null, $body = $null) {
+    $headers = @{ "Accept" = "application/json" }
+    if ($token) {
+        $headers["Authorization"] = "Bearer $token"
+    }
+
+    if ($null -ne $body) {
+        $json = ($body | ConvertTo-Json -Depth 20)
+        return Invoke-RestMethod -Method $method -Uri $url -Headers $headers -ContentType "application/json" -Body $json
+    }
+
+    return Invoke-RestMethod -Method $method -Uri $url -Headers $headers
+}
+
 try {
-    $loginBody = '{"email":"test@test.com","password":"123456"}'
-    $login = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body $loginBody
-    $token = $login.token
-    $userId = $login.user.id
-    Write-Host "SUCCESS: Login OK" -ForegroundColor Green
-    Write-Host "User ID: $userId"
-    Write-Host "Token: $($token.Substring(0,50))..."
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host "       FOODFEST API TEST SCRIPT            " -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+
+    Write-Step "Health check"
+    $health = Invoke-RestMethod -Method GET -Uri "$BaseUrl/health"
+    Assert-True ($health -eq "OK") "GET /health should return OK"
+
+    $suffix = (Get-Random -Minimum 10000 -Maximum 99999)
+    $username1 = "all_api_user_$suffix"
+    $password = "password123"
+
+    Write-Step "Auth: register/login primary user"
+    $reg1 = Invoke-Json POST "$BaseUrl/api/auth/register" $null @{
+        username = $username1
+        password = $password
+        fullName = "All API User $suffix"
+    }
+    Assert-True ($reg1.success -eq $true) "Register primary user should succeed"
+    $token = $reg1.data.token
+    $userId = [int]$reg1.data.user.id
+    Assert-True ($token) "Register should return token"
+
+    $login1 = Invoke-Json POST "$BaseUrl/api/auth/login" $null @{
+        username = $username1
+        password = $password
+    }
+    Assert-True ($login1.success -eq $true) "Login primary user should succeed"
+    Assert-True ($login1.data.token) "Login should return token"
+
+    Write-Step "Posts: list/create/get/like/save/comment"
+    $posts = Invoke-Json GET "$BaseUrl/api/posts" $token
+    Assert-True ($posts.success -eq $true) "GET /api/posts should succeed"
+
+    $createPost = Invoke-Json POST "$BaseUrl/api/posts" $token @{
+        postType = "recipe"
+        title = "All API Post $suffix"
+        content = "Post for test-all script"
+    }
+    Assert-True ($createPost.success -eq $true) "Create post should succeed"
+    $postId = [int]$createPost.data.id
+
+    $singlePost = Invoke-Json GET "$BaseUrl/api/posts/$postId" $token
+    Assert-True ($singlePost.success -eq $true) "GET /api/posts/{id} should succeed"
+
+    $likeOn = Invoke-Json POST "$BaseUrl/api/posts/$postId/like" $token
+    Assert-True ($likeOn.success -eq $true) "Like post should succeed"
+    Assert-True ($likeOn.data.isLiked -eq $true) "Post should be liked"
+
+    $saveOn = Invoke-Json POST "$BaseUrl/api/posts/$postId/save" $token
+    Assert-True ($saveOn.success -eq $true) "Save post should succeed"
+    Assert-True ($saveOn.data.isSaved -eq $true) "Post should be saved"
+
+    $comment = Invoke-Json POST "$BaseUrl/api/posts/$postId/comments" $token @{ content = "Comment from test-all" }
+    Assert-True ($comment.success -eq $true) "Create comment should succeed"
+
+    $comments = Invoke-Json GET "$BaseUrl/api/posts/$postId/comments?page=1&limit=20" $token
+    Assert-True ($comments.success -eq $true) "Get comments should succeed"
+    Assert-True ($comments.data.total -ge 1) "Comments total should be at least 1"
+
+    Write-Step "Auth: register/login secondary user"
+    $username2 = "all_api_user2_$suffix"
+    $reg2 = Invoke-Json POST "$BaseUrl/api/auth/register" $null @{
+        username = $username2
+        password = $password
+        fullName = "All API User 2 $suffix"
+    }
+    Assert-True ($reg2.success -eq $true) "Register secondary user should succeed"
+    $user2Id = [int]$reg2.data.user.id
+
+    $login2 = Invoke-Json POST "$BaseUrl/api/auth/login" $null @{
+        username = $username2
+        password = $password
+    }
+    Assert-True ($login2.success -eq $true) "Login secondary user should succeed"
+
+    Write-Step "Follow: follow/check/followers/following/unfollow"
+    $followOn = Invoke-Json POST "$BaseUrl/api/users/$user2Id/follow" $token
+    Assert-True ($followOn.success -eq $true) "Follow user should succeed"
+    Assert-True ($followOn.data.isFollowing -eq $true) "isFollowing should be true after follow"
+
+    $isFollowing = Invoke-Json GET "$BaseUrl/api/users/$user2Id/is-following" $token
+    Assert-True ($isFollowing.success -eq $true) "Check is-following should succeed"
+    Assert-True ($isFollowing.data.isFollowing -eq $true) "Check should return true"
+
+    $followers = Invoke-Json GET "$BaseUrl/api/users/$user2Id/followers?page=1" $token
+    Assert-True ($followers.success -eq $true) "Get followers should succeed"
+    Assert-True ((@($followers.data.data | Where-Object { [int]$_.id -eq $userId }).Count) -ge 1) "Followers should include primary user"
+
+    $following = Invoke-Json GET "$BaseUrl/api/users/$userId/following?page=1" $token
+    Assert-True ($following.success -eq $true) "Get following should succeed"
+    Assert-True ((@($following.data.data | Where-Object { [int]$_.id -eq $user2Id }).Count) -ge 1) "Following should include secondary user"
+
+    $followOff = Invoke-Json POST "$BaseUrl/api/users/$user2Id/follow" $token
+    Assert-True ($followOff.success -eq $true) "Unfollow user should succeed"
+    Assert-True ($followOff.data.isFollowing -eq $false) "isFollowing should be false after unfollow"
+
+    Write-Step "Cleanup toggles and post"
+    $saveOff = Invoke-Json POST "$BaseUrl/api/posts/$postId/save" $token
+    Assert-True ($saveOff.success -eq $true) "Unsave post should succeed"
+
+    $likeOff = Invoke-Json POST "$BaseUrl/api/posts/$postId/like" $token
+    Assert-True ($likeOff.success -eq $true) "Unlike post should succeed"
+
+    $deletePost = Invoke-Json DELETE "$BaseUrl/api/posts/$postId" $token
+    Assert-True ($deletePost.success -eq $true) "Delete test post should succeed"
+
+    Write-Host "`n============================================" -ForegroundColor Green
+    Write-Host "         ALL TEST-ALL CHECKS PASSED        " -ForegroundColor Green
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Host "Primary user: $username1 (id=$userId)" -ForegroundColor DarkGray
+    Write-Host "Secondary user: $username2 (id=$user2Id)" -ForegroundColor DarkGray
+}
+catch {
+    Write-Host "`n============================================" -ForegroundColor Red
+    Write-Host "             TEST-ALL FAILED               " -ForegroundColor Red
+    Write-Host "============================================" -ForegroundColor Red
+    Write-Host $_ -ForegroundColor Red
     exit 1
 }
-
-$headers = @{
-    "Authorization" = "Bearer $token"
-    "Content-Type" = "application/json"
-}
-
-# 2. GET POSTS (empty initially)
-Write-Host "`n=== 2. GET POSTS ===" -ForegroundColor Yellow
-try {
-    $posts = Invoke-RestMethod -Uri "$baseUrl/api/posts" -Method GET -Headers $headers
-    Write-Host "SUCCESS: Got $($posts.posts.Count) posts" -ForegroundColor Green
-    $posts | ConvertTo-Json -Depth 3
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-}
-
-# 3. CREATE POST
-Write-Host "`n=== 3. CREATE POST ===" -ForegroundColor Yellow
-try {
-    $postBody = @{
-        postType = "recipe"
-        title = "Pho Bo Ha Noi"
-        content = "Day la cong thuc nau pho ngon nhat!"
-        imageUrl = "https://example.com/pho.jpg"
-        tags = @("pho", "vietnamese", "soup")
-    } | ConvertTo-Json
-    
-    $newPost = Invoke-RestMethod -Uri "$baseUrl/api/posts" -Method POST -Headers $headers -Body $postBody
-    Write-Host "SUCCESS: Created post" -ForegroundColor Green
-    $newPost | ConvertTo-Json -Depth 3
-    $postId = $newPost.id
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host $_.ErrorDetails.Message -ForegroundColor Red
-}
-
-# 4. GET SINGLE POST
-Write-Host "`n=== 4. GET SINGLE POST ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $singlePost = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId" -Method GET -Headers $headers
-        Write-Host "SUCCESS: Got post $postId" -ForegroundColor Green
-        $singlePost | ConvertTo-Json -Depth 3
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 5. LIKE POST
-Write-Host "`n=== 5. LIKE POST ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $likeResult = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/like" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Liked post" -ForegroundColor Green
-        $likeResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 6. SAVE POST
-Write-Host "`n=== 6. SAVE POST ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $saveResult = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/save" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Saved post" -ForegroundColor Green
-        $saveResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 7. GET SAVED POSTS
-Write-Host "`n=== 7. GET SAVED POSTS ===" -ForegroundColor Yellow
-try {
-    $savedPosts = Invoke-RestMethod -Uri "$baseUrl/api/posts/saved" -Method GET -Headers $headers
-    Write-Host "SUCCESS: Got $($savedPosts.posts.Count) saved posts" -ForegroundColor Green
-    $savedPosts | ConvertTo-Json -Depth 3
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-}
-
-# 8. ADD COMMENT
-Write-Host "`n=== 8. ADD COMMENT ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $commentBody = @{
-            content = "Nhin ngon qua! Cam on ban da chia se cong thuc!"
-        } | ConvertTo-Json
-        
-        $comment = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/comments" -Method POST -Headers $headers -Body $commentBody
-        Write-Host "SUCCESS: Added comment" -ForegroundColor Green
-        $comment | ConvertTo-Json -Depth 3
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 9. GET COMMENTS
-Write-Host "`n=== 9. GET COMMENTS ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $comments = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/comments" -Method GET -Headers $headers
-        Write-Host "SUCCESS: Got $($comments.comments.Count) comments" -ForegroundColor Green
-        $comments | ConvertTo-Json -Depth 3
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 10. FOLLOW USER (follow yourself for testing, or need another user)
-Write-Host "`n=== 10. FOLLOW USER ===" -ForegroundColor Yellow
-# First, register another user if needed
-try {
-    $registerBody = '{"email":"testuser2@test.com","password":"123456","name":"Test User 2"}'
-    $register = Invoke-RestMethod -Uri "$baseUrl/api/auth/register" -Method POST -ContentType "application/json" -Body $registerBody
-    $user2Id = $register.user.id
-    Write-Host "Created test user 2: $user2Id" -ForegroundColor Gray
-} catch {
-    # User might already exist, try login
-    try {
-        $loginBody2 = '{"email":"testuser2@test.com","password":"123456"}'
-        $login2 = Invoke-RestMethod -Uri "$baseUrl/api/auth/login" -Method POST -ContentType "application/json" -Body $loginBody2
-        $user2Id = $login2.user.id
-        Write-Host "User 2 exists: $user2Id" -ForegroundColor Gray
-    } catch {
-        Write-Host "Could not get user 2" -ForegroundColor Red
-    }
-}
-
-if ($user2Id) {
-    try {
-        $followResult = Invoke-RestMethod -Uri "$baseUrl/api/users/$user2Id/follow" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Follow result" -ForegroundColor Green
-        $followResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 11. CHECK IS FOLLOWING
-Write-Host "`n=== 11. CHECK IS FOLLOWING ===" -ForegroundColor Yellow
-if ($user2Id) {
-    try {
-        $isFollowing = Invoke-RestMethod -Uri "$baseUrl/api/users/$user2Id/is-following" -Method GET -Headers $headers
-        Write-Host "SUCCESS: Is following check" -ForegroundColor Green
-        $isFollowing | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 12. GET FOLLOWERS
-Write-Host "`n=== 12. GET FOLLOWERS ===" -ForegroundColor Yellow
-try {
-    $followers = Invoke-RestMethod -Uri "$baseUrl/api/users/$userId/followers" -Method GET -Headers $headers
-    Write-Host "SUCCESS: Got followers" -ForegroundColor Green
-    $followers | ConvertTo-Json -Depth 3
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-}
-
-# 13. GET FOLLOWING
-Write-Host "`n=== 13. GET FOLLOWING ===" -ForegroundColor Yellow
-try {
-    $following = Invoke-RestMethod -Uri "$baseUrl/api/users/$userId/following" -Method GET -Headers $headers
-    Write-Host "SUCCESS: Got following" -ForegroundColor Green
-    $following | ConvertTo-Json -Depth 3
-} catch {
-    Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-}
-
-# 14. UNLIKE POST (toggle)
-Write-Host "`n=== 14. UNLIKE POST (toggle) ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $unlikeResult = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/like" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Unlike result" -ForegroundColor Green
-        $unlikeResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 15. UNSAVE POST (toggle)
-Write-Host "`n=== 15. UNSAVE POST (toggle) ===" -ForegroundColor Yellow
-if ($postId) {
-    try {
-        $unsaveResult = Invoke-RestMethod -Uri "$baseUrl/api/posts/$postId/save" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Unsave result" -ForegroundColor Green
-        $unsaveResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-# 16. UNFOLLOW USER (toggle)
-Write-Host "`n=== 16. UNFOLLOW USER (toggle) ===" -ForegroundColor Yellow
-if ($user2Id) {
-    try {
-        $unfollowResult = Invoke-RestMethod -Uri "$baseUrl/api/users/$user2Id/follow" -Method POST -Headers $headers
-        Write-Host "SUCCESS: Unfollow result" -ForegroundColor Green
-        $unfollowResult | ConvertTo-Json
-    } catch {
-        Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
-    }
-}
-
-Write-Host "`n============================================" -ForegroundColor Cyan
-Write-Host "           TEST COMPLETED!                 " -ForegroundColor Cyan
-Write-Host "============================================" -ForegroundColor Cyan

@@ -25,12 +25,13 @@ import com.foodfest.app.theme.AppColors
 import foodfest.composeapp.generated.resources.Res
 import foodfest.composeapp.generated.resources.default_avatar
 import org.jetbrains.compose.resources.painterResource
+import kotlin.math.roundToInt
 
 @Composable
 fun SavedPostCard(
     post: Post,
     onLikeClick: () -> Unit,
-    // onCommentClick: () -> Unit,
+    onCommentClick: () -> Unit,
     onUnsaveClick: () -> Unit,
     onUserClick: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -165,25 +166,25 @@ fun SavedPostCard(
                 }
                 
                 // Comment button
-                // Row(
-                //     modifier = Modifier
-                //         .clickable(onClick = onCommentClick)
-                //         .padding(horizontal = 16.dp, vertical = 8.dp),
-                //     verticalAlignment = Alignment.CenterVertically
-                // ) {
-                //     Icon(
-                //         imageVector = Icons.Filled.ChatBubbleOutline,
-                //         contentDescription = "Bình luận",
-                //         tint = AppColors.GrayPlaceholder,
-                //         modifier = Modifier.size(20.dp)
-                //     )
-                //     Spacer(modifier = Modifier.width(6.dp))
-                //     Text(
-                //         text = "${post.commentCount} Bình luận",
-                //         fontSize = 13.sp,
-                //         color = AppColors.GrayPlaceholder
-                //     )
-                // }
+                Row(
+                    modifier = Modifier
+                        .clickable(onClick = onCommentClick)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ChatBubbleOutline,
+                        contentDescription = "Bình luận",
+                        tint = AppColors.GrayPlaceholder,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "${post.commentCount} Bình luận",
+                        fontSize = 13.sp,
+                        color = AppColors.GrayPlaceholder
+                    )
+                }
             }
         }
     }
@@ -191,10 +192,20 @@ fun SavedPostCard(
 
 private fun formatCount(count: Int): String {
     return when {
-        count >= 1000000 -> String.format("%.1fM", count / 1000000.0)
-        count >= 1000 -> String.format("%.1fk", count / 1000.0)
+        count >= 1000000 -> formatCompactNumber(count / 1000000.0, "M")
+        count >= 1000 -> formatCompactNumber(count / 1000.0, "k")
         else -> count.toString()
     }
+}
+
+private fun formatCompactNumber(value: Double, suffix: String): String {
+    val rounded = (value * 10).roundToInt() / 10.0
+    val numberText = if (rounded % 1.0 == 0.0) {
+        rounded.toInt().toString()
+    } else {
+        rounded.toString()
+    }
+    return numberText + suffix
 }
 
 private fun formatTimeAgo(createdAt: String): String {

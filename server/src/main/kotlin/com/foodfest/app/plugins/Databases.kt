@@ -5,6 +5,11 @@ import com.foodfest.app.features.auth.AuthTable
 import com.foodfest.app.features.dish.DishTable
 import com.foodfest.app.features.dish.DishTagTable
 import com.foodfest.app.features.follow.FollowTable
+import com.foodfest.app.features.family.FamilyGroupTable
+import com.foodfest.app.features.family.FamilyMemberTable
+import com.foodfest.app.features.family.FamilyMenuTable
+import com.foodfest.app.features.family.FamilyMenuItemTable
+import com.foodfest.app.features.family.FamilyMenuVoteTable
 import com.foodfest.app.features.post.PostTable
 import com.foodfest.app.features.post.SavedPostTable
 import com.foodfest.app.features.post.PostLikeTable
@@ -23,6 +28,11 @@ fun Application.configureDatabases() {
         PostTable,
         SavedPostTable,
         PostLikeTable,
-        CommentTable
+        CommentTable,
+        FamilyGroupTable,
+        FamilyMemberTable,
+        FamilyMenuTable,
+        FamilyMenuItemTable,
+        FamilyMenuVoteTable
     )
 }

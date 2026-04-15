@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
 
 data class CreatePostState(
     val title: String = "",
@@ -60,7 +61,7 @@ class CreatePostViewModel {
                 
                 val uploadResult = postRepository.uploadImage(
                     imageBytes = imageBytes,
-                    fileName = fileName ?: "post_${System.currentTimeMillis()}.jpg"
+                    fileName = fileName ?: "post_${Random.nextInt(100000, 999999)}.jpg"
                 )
                 
                 uploadResult.fold(

@@ -1,5 +1,6 @@
 package com.foodfest.app.features.post
 
+import com.foodfest.app.core.exception.AppException
 import kotlinx.serialization.Serializable
 
 // =============================================
@@ -32,10 +33,30 @@ data class SaveResult(
     val isSaved: Boolean
 )
 
+@Serializable
+data class DeleteCommentResult(
+    val deleted: Boolean,
+    val commentId: Int,
+    val postId: Int,
+    val parentCommentId: Int? = null,
+    val deletedCount: Int
+)
+
 // =============================================
 // SERVICE
 // =============================================
 class PostService(private val repository: PostRepository) {
+
+    private suspend fun ensurePostExists(postId: Int) {
+        if (!repository.existsPost(postId)) {
+            throw AppException.NotFound("Không tìm thấy bài viết")
+        }
+    }
+
+    private suspend fun getCommentNodeOrThrow(commentId: Int): CommentNode {
+        return repository.getCommentNode(commentId)
+            ?: throw AppException.NotFound("Không tìm thấy bình luận")
+    }
     
     suspend fun createPost(
         userId: Int,
@@ -67,6 +88,28 @@ class PostService(private val repository: PostRepository) {
     ): Result<PostListResponse> = runCatching {
         val limit = 10
         val (posts, total) = repository.getPosts(page, limit, currentUserId, search, postType)
+        PostListResponse(
+            data = posts,
+            page = page,
+            limit = limit,
+            total = total
+        )
+    }
+
+    suspend fun getFollowingFeed(
+        page: Int,
+        currentUserId: Int,
+        search: String? = null,
+        postType: String? = null
+    ): Result<PostListResponse> = runCatching {
+        val limit = 10
+        val (posts, total) = repository.getFollowingFeed(
+            followerUserId = currentUserId,
+            page = page,
+            limit = limit,
+            search = search,
+            postType = postType
+        )
         PostListResponse(
             data = posts,
             page = page,
@@ -130,22 +173,81 @@ class PostService(private val repository: PostRepository) {
         postId: Int,
         request: CreateCommentRequest
     ): Result<Comment> = runCatching {
-        if (request.content.isBlank()) {
+        val normalizedContent = request.content.trim()
+
+        if (normalizedContent.isBlank()) {
             throw IllegalArgumentException("Nội dung bình luận không được để trống")
         }
+
+        ensurePostExists(postId)
+
+        val parentCommentId = request.parentCommentId
+        if (parentCommentId != null) {
+            val parentComment = repository.getCommentNode(parentCommentId)
+                ?: throw AppException.NotFound("Không tìm thấy bình luận cha")
+
+            if (parentComment.postId != postId) {
+                throw AppException.Validation("Reply phải thuộc cùng bài viết với comment cha")
+            }
+
+            if (parentComment.parentCommentId != null || parentComment.depth != 0) {
+                throw AppException.Validation("Chỉ hỗ trợ tối đa 2 cấp bình luận")
+            }
+        }
         
-        repository.addComment(userId, postId, request.content)
+        repository.addComment(
+            userId = userId,
+            postId = postId,
+            content = normalizedContent,
+            parentCommentId = parentCommentId
+        )
             ?: throw IllegalStateException("Không thể thêm bình luận")
     }
     
-    suspend fun getComments(postId: Int, page: Int): Result<CommentListResponse> = runCatching {
-        val limit = 20
-        val (comments, total) = repository.getComments(postId, page, limit)
+    suspend fun getComments(postId: Int, page: Int, limit: Int = 20): Result<CommentListResponse> = runCatching {
+        ensurePostExists(postId)
+
+        val safeLimit = limit.coerceIn(1, 50)
+        val (comments, total) = repository.getComments(postId, page, safeLimit)
         CommentListResponse(
             data = comments,
             page = page,
-            limit = limit,
+            limit = safeLimit,
             total = total
+        )
+    }
+
+    suspend fun getReplies(commentId: Int, page: Int, limit: Int = 20): Result<CommentListResponse> = runCatching {
+        val parentComment = getCommentNodeOrThrow(commentId)
+        if (parentComment.parentCommentId != null || parentComment.depth != 0) {
+            throw AppException.Validation("Chi lay duoc replies cua comment cap 1")
+        }
+
+        val safeLimit = limit.coerceIn(1, 50)
+        val (replies, total) = repository.getReplies(commentId, page, safeLimit)
+        CommentListResponse(
+            data = replies,
+            page = page,
+            limit = safeLimit,
+            total = total
+        )
+    }
+
+    suspend fun deleteComment(userId: Int, commentId: Int): Result<DeleteCommentResult> = runCatching {
+        val commentNode = getCommentNodeOrThrow(commentId)
+        if (commentNode.userId != userId) {
+            throw AppException.Forbidden("Ban khong co quyen xoa binh luan nay")
+        }
+
+        val deleted = repository.deleteComment(commentId)
+            ?: throw IllegalStateException("Khong the xoa binh luan")
+
+        DeleteCommentResult(
+            deleted = true,
+            commentId = deleted.commentId,
+            postId = deleted.postId,
+            parentCommentId = deleted.parentCommentId,
+            deletedCount = deleted.deletedCount
         )
     }
 }

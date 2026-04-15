@@ -23,6 +23,24 @@ fun Route.postRoutes(postService: PostService) {
         // 1. ƯU TIÊN ROUTE CỤ THỂ & CÓ AUTHENTICATION (Đưa lên đầu)
         // =================================================================
         authenticate("auth-jwt") {
+            // Get feed of users that current user follows
+            get("/feed/following") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val search = call.request.queryParameters["search"]?.takeIf { it.isNotBlank() }
+                val postType = call.request.queryParameters["postType"]?.takeIf { it.isNotBlank() }
+
+                postService.getFollowingFeed(page, principal.userId, search, postType)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get following feed"))
+                    }
+            }
+
             // Get saved posts (QUAN TRỌNG: Phải đặt trước get("/{postId}"))
             get("/saved") {
                 val principal = call.principal<JWTPrincipal>()
@@ -156,8 +174,9 @@ fun Route.postRoutes(postService: PostService) {
                 ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
 
             val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
 
-            postService.getComments(postId, page)
+            postService.getComments(postId, page, limit)
                 .onSuccess { result ->
                     call.respond(HttpStatusCode.OK, ApiResponse.success(result))
                 }
@@ -178,6 +197,44 @@ fun Route.postRoutes(postService: PostService) {
                 }
                 .onFailure { error ->
                     call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get post"))
+                }
+        }
+    }
+
+    route("/api/comments") {
+        authenticate("auth-jwt") {
+            // Delete a comment/reply authored by current user
+            delete("/{commentId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@delete call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val commentId = call.parameters["commentId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid comment id"))
+
+                postService.deleteComment(principal.userId, commentId)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result, "Da xoa binh luan"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to delete comment"))
+                    }
+            }
+        }
+
+        // Get level-2 replies of a level-1 comment
+        get("/{commentId}/replies") {
+            val commentId = call.parameters["commentId"]?.toIntOrNull()
+                ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid comment id"))
+
+            val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+
+            postService.getReplies(commentId, page, limit)
+                .onSuccess { result ->
+                    call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                }
+                .onFailure { error ->
+                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get replies"))
                 }
         }
     }

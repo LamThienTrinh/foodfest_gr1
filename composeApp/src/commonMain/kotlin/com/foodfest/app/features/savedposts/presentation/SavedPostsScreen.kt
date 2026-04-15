@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.foodfest.app.features.home.presentation.components.CommentBottomSheet
 import com.foodfest.app.features.savedposts.presentation.components.*
 import com.foodfest.app.theme.AppColors
 import kotlinx.coroutines.launch
@@ -24,7 +25,6 @@ import kotlinx.coroutines.launch
 fun SavedPostsScreen(
     viewModel: SavedPostsViewModel = remember { SavedPostsViewModel() },
     onBack: () -> Unit,
-    // onNavigateToComments: (Int) -> Unit = {},
     onNavigateToUserProfile: (Int) -> Unit = {},
     onBrowsePosts: () -> Unit = {}
 ) {
@@ -131,9 +131,9 @@ fun SavedPostsScreen(
                                     viewModel.likePost(post.id)
                                 }
                             },
-                            // onCommentClick = {
-                            //     onNavigateToComments(post.id)
-                            // },
+                            onCommentClick = {
+                                viewModel.openComments(post.id, post.commentCount)
+                            },
                             onUnsaveClick = {
                                 scope.launch {
                                     viewModel.unsavePost(post.id)
@@ -177,6 +177,43 @@ fun SavedPostsScreen(
                         }
                 }
             }
+        }
+
+        if (state.isCommentSheetVisible) {
+            CommentBottomSheet(
+                comments = state.comments,
+                totalCommentCount = state.selectedPostCommentCount,
+                threadStates = state.commentThreadStates,
+                inputText = state.commentInput,
+                replyingToUserName = state.selectedReplyUserName,
+                isLoading = state.isCommentsLoading,
+                isSubmitting = state.isCommentSubmitting,
+                errorMessage = state.commentsErrorMessage,
+                onToggleThread = { comment ->
+                    viewModel.toggleCommentThread(comment)
+                },
+                onReplyClick = { comment ->
+                    viewModel.startReply(comment)
+                },
+                onLoadMoreReplies = { parentCommentId ->
+                    viewModel.loadMoreReplies(parentCommentId)
+                },
+                onInputTextChange = { input ->
+                    viewModel.updateCommentInput(input)
+                },
+                onCancelReply = {
+                    viewModel.cancelReply()
+                },
+                onSubmit = {
+                    viewModel.submitComment()
+                },
+                onDismiss = {
+                    viewModel.closeComments()
+                },
+                onRetryLoad = {
+                    viewModel.retryLoadComments()
+                }
+            )
         }
     }
 }

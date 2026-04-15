@@ -25,13 +25,13 @@ data class PostListResponse(
     val total: Int
 )
 
-// @Serializable
-// data class CommentListResponse(
-//     val data: List<Comment>,
-//     val page: Int,
-//     val limit: Int,
-//     val total: Int
-// )
+@Serializable
+data class CommentListResponse(
+    val data: List<Comment>,
+    val page: Int,
+    val limit: Int,
+    val total: Int
+)
 
 @Serializable
 data class LikeResult(
@@ -48,6 +48,39 @@ class PostRepository {
     private val client = NetworkClient.httpClient
     private val baseUrl = NetworkClient.BASE_URL
 
+    private suspend fun requestPostList(
+        endpoint: String,
+        page: Int,
+        limit: Int,
+        search: String?,
+        postType: String?
+    ): Result<PostListResponse> {
+        return try {
+            val response = client.get("$baseUrl$endpoint") {
+                parameter("page", page)
+                parameter("limit", limit)
+                if (!search.isNullOrBlank()) {
+                    parameter("search", search)
+                }
+                if (!postType.isNullOrBlank()) {
+                    parameter("postType", postType)
+                }
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
+
+            val apiResponse = response.body<ApiResponse<PostListResponse>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to get posts"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     private fun getAuthHeaders(): Map<String, String> {
         val token = TokenManager.getToken()
         return if (token != null) {
@@ -63,30 +96,42 @@ class PostRepository {
         search: String? = null,
         postType: String? = null
     ): Result<PostListResponse> {
-        return try {
-            val response = client.get("$baseUrl/api/posts") {
-                parameter("page", page)
-                parameter("limit", limit)
-                if (!search.isNullOrBlank()) {
-                    parameter("search", search)
-                }
-                if (!postType.isNullOrBlank()) {
-                    parameter("postType", postType)
-                }
-                getAuthHeaders().forEach { (key, value) ->
-                    header(key, value)
-                }
-            }
-            
-            val apiResponse = response.body<ApiResponse<PostListResponse>>()
-            if (apiResponse.success && apiResponse.data != null) {
-                Result.success(apiResponse.data)
-            } else {
-                Result.failure(Exception(apiResponse.message ?: "Failed to get posts"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+        return requestPostList(
+            endpoint = "/api/posts",
+            page = page,
+            limit = limit,
+            search = search,
+            postType = postType
+        )
+    }
+
+    suspend fun getFollowingPosts(
+        page: Int = 1,
+        limit: Int = 10,
+        search: String? = null,
+        postType: String? = null
+    ): Result<PostListResponse> {
+        return requestPostList(
+            endpoint = "/api/posts/feed/following",
+            page = page,
+            limit = limit,
+            search = search,
+            postType = postType
+        )
+    }
+
+    suspend fun getUserPosts(
+        userId: Int,
+        page: Int = 1,
+        limit: Int = 10
+    ): Result<PostListResponse> {
+        return requestPostList(
+            endpoint = "/api/users/$userId/posts",
+            page = page,
+            limit = limit,
+            search = null,
+            postType = null
+        )
     }
 
     suspend fun getPostById(postId: Int): Result<Post> {
@@ -188,47 +233,77 @@ class PostRepository {
         }
     }
 
-    // suspend fun getComments(postId: Int, page: Int = 1, limit: Int = 20): Result<CommentListResponse> {
-    //     return try {
-    //         val response = client.get("$baseUrl/api/posts/$postId/comments") {
-    //             parameter("page", page)
-    //             parameter("limit", limit)
-    //             getAuthHeaders().forEach { (key, value) ->
-    //                 header(key, value)
-    //             }
-    //         }
-            
-    //         val apiResponse = response.body<ApiResponse<CommentListResponse>>()
-    //         if (apiResponse.success && apiResponse.data != null) {
-    //             Result.success(apiResponse.data)
-    //         } else {
-    //             Result.failure(Exception(apiResponse.message ?: "Failed to get comments"))
-    //         }
-    //     } catch (e: Exception) {
-    //         Result.failure(e)
-    //     }
-    // }
+    suspend fun getComments(postId: Int, page: Int = 1, limit: Int = 20): Result<CommentListResponse> {
+        return try {
+            val response = client.get("$baseUrl/api/posts/$postId/comments") {
+                parameter("page", page)
+                parameter("limit", limit)
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
 
-    // suspend fun addComment(postId: Int, content: String): Result<Comment> {
-    //     return try {
-    //         val response = client.post("$baseUrl/api/posts/$postId/comments") {
-    //             contentType(ContentType.Application.Json)
-    //             getAuthHeaders().forEach { (key, value) ->
-    //                 header(key, value)
-    //             }
-    //             setBody(CreateCommentRequest(content))
-    //         }
-            
-    //         val apiResponse = response.body<ApiResponse<Comment>>()
-    //         if (apiResponse.success && apiResponse.data != null) {
-    //             Result.success(apiResponse.data)
-    //         } else {
-    //             Result.failure(Exception(apiResponse.message ?: "Failed to add comment"))
-    //         }
-    //     } catch (e: Exception) {
-    //         Result.failure(e)
-    //     }
-    // }
+            val apiResponse = response.body<ApiResponse<CommentListResponse>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to get comments"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun addComment(
+        postId: Int,
+        content: String,
+        parentCommentId: Int? = null
+    ): Result<Comment> {
+        return try {
+            val response = client.post("$baseUrl/api/posts/$postId/comments") {
+                contentType(ContentType.Application.Json)
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+                setBody(
+                    CreateCommentRequest(
+                        content = content,
+                        parentCommentId = parentCommentId
+                    )
+                )
+            }
+
+            val apiResponse = response.body<ApiResponse<Comment>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to add comment"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getReplies(commentId: Int, page: Int = 1, limit: Int = 10): Result<CommentListResponse> {
+        return try {
+            val response = client.get("$baseUrl/api/comments/$commentId/replies") {
+                parameter("page", page)
+                parameter("limit", limit)
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
+
+            val apiResponse = response.body<ApiResponse<CommentListResponse>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to get replies"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 
     // Upload ảnh lên Cloudinary qua server
     @OptIn(ExperimentalEncodingApi::class)

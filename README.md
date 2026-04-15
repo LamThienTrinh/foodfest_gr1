@@ -74,8 +74,17 @@ foodfest/
 # Tạo database
 createdb foodfest
 
-# Chạy migrations (nếu có)
+# Chạy migrations tăng dần (V1, V2, V3)
+./database/run-migrations.ps1 -DbHost 127.0.0.1 -Database foodfest -User postgres -Password postgres
+
+# Chạy migrations nhưng bỏ qua seed data
+./database/run-migrations.ps1 -DbHost 127.0.0.1 -Database foodfest -User postgres -Password postgres -SkipSeed
+
+# Hoặc chỉ tạo schema (không seed dữ liệu mẫu)
 psql -d foodfest -f database/schema.sql
+
+# Seed dữ liệu mẫu (tuỳ chọn)
+psql -d foodfest -f database/seed.sql
 ```
 
 ### 2. Backend Server

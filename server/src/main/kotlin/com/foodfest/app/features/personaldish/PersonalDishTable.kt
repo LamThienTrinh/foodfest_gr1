@@ -109,8 +109,8 @@ class PersonalDishRepository {
         createdAt = row[PersonalDishTable.createdAt].toString()
     )
     
-    private suspend fun getTagsForDish(personalDishId: Int): List<String> = newSuspendedTransaction(Dispatchers.IO) {
-        (PersonalDishTagTable innerJoin TagTable)
+    private fun getTagsForDishInCurrentTx(personalDishId: Int): List<String> {
+        return (PersonalDishTagTable innerJoin TagTable)
             .select { PersonalDishTagTable.personalDishId eq personalDishId }
             .map { it[TagTable.name] }
     }
@@ -140,7 +140,7 @@ class PersonalDishRepository {
             }
             
             val row = PersonalDishTable.select { PersonalDishTable.id eq id }.first()
-            val tags = getTagsForDish(id)
+            val tags = getTagsForDishInCurrentTx(id)
             rowToPersonalDish(row, tags)
         }
     
@@ -149,7 +149,7 @@ class PersonalDishRepository {
             PersonalDishTable.select { 
                 (PersonalDishTable.id eq personalDishId) and (PersonalDishTable.userId eq userId)
             }.singleOrNull()?.let { row ->
-                val tags = getTagsForDish(personalDishId)
+                val tags = getTagsForDishInCurrentTx(personalDishId)
                 rowToPersonalDish(row, tags)
             }
         }
@@ -165,7 +165,7 @@ class PersonalDishRepository {
                 .orderBy(PersonalDishTable.createdAt to SortOrder.DESC)
                 .limit(limit, offset.toLong())
                 .map { row ->
-                    val tags = getTagsForDish(row[PersonalDishTable.id].value)
+                    val tags = getTagsForDishInCurrentTx(row[PersonalDishTable.id].value)
                     rowToPersonalDish(row, tags)
                 }
             
@@ -200,8 +200,13 @@ class PersonalDishRepository {
                     }
                 }
             }
-            
-            getById(personalDishId, userId)
+
+            PersonalDishTable.select {
+                (PersonalDishTable.id eq personalDishId) and (PersonalDishTable.userId eq userId)
+            }.singleOrNull()?.let { row ->
+                val tags = getTagsForDishInCurrentTx(personalDishId)
+                rowToPersonalDish(row, tags)
+            }
         }
     
     suspend fun delete(personalDishId: Int, userId: Int): Boolean = newSuspendedTransaction(Dispatchers.IO) {
@@ -216,7 +221,7 @@ class PersonalDishRepository {
             PersonalDishTable.select { 
                 (PersonalDishTable.userId eq userId) and (PersonalDishTable.originalDishId eq originalDishId)
             }.singleOrNull()?.let { row ->
-                val tags = getTagsForDish(row[PersonalDishTable.id].value)
+                val tags = getTagsForDishInCurrentTx(row[PersonalDishTable.id].value)
                 rowToPersonalDish(row, tags)
             }
         }

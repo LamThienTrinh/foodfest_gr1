@@ -1,5 +1,6 @@
 package com.foodfest.app.features.auth
 
+import com.foodfest.app.features.follow.FollowTable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -23,6 +24,17 @@ object AuthTable : IntIdTable("users", "user_id") {
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp())
 }
 
+object UserProfileStatsView : Table("v_user_profile_stats") {
+    val userId = integer("user_id")
+    val username = varchar("username", 50)
+    val fullName = varchar("full_name", 100)
+    val avatarUrl = text("avatar_url").nullable()
+    val followerCount = integer("follower_count")
+    val followingCount = integer("following_count")
+    val postCount = integer("post_count")
+    val totalReceivedLikes = integer("total_received_likes")
+}
+
 // =============================================
 // MODELS
 // =============================================
@@ -36,6 +48,19 @@ data class User(
     val followerCount: Int = 0,
     val followingCount: Int = 0,
     val createdAt: String
+)
+
+@Serializable
+data class PublicUserProfile(
+    val id: Int,
+    val username: String,
+    val fullName: String,
+    val avatarUrl: String? = null,
+    val followerCount: Int = 0,
+    val followingCount: Int = 0,
+    val postCount: Int = 0,
+    val totalReceivedLikes: Int = 0,
+    val isFollowing: Boolean? = null
 )
 
 // =============================================
@@ -74,6 +99,36 @@ class AuthRepository {
             .map { rowToUser(it) }
             .singleOrNull()
     }
+
+    suspend fun getPublicProfile(userId: Int, currentUserId: Int?): PublicUserProfile? =
+        newSuspendedTransaction(Dispatchers.IO) {
+            val row = UserProfileStatsView
+                .select { UserProfileStatsView.userId eq userId }
+                .singleOrNull() ?: return@newSuspendedTransaction null
+
+            val isFollowing = currentUserId?.let { viewerId ->
+                if (viewerId == userId) {
+                    false
+                } else {
+                    FollowTable.select {
+                        (FollowTable.followerId eq viewerId) and
+                            (FollowTable.followingId eq userId)
+                    }.count() > 0
+                }
+            }
+
+            PublicUserProfile(
+                id = row[UserProfileStatsView.userId],
+                username = row[UserProfileStatsView.username],
+                fullName = row[UserProfileStatsView.fullName],
+                avatarUrl = row[UserProfileStatsView.avatarUrl],
+                followerCount = row[UserProfileStatsView.followerCount],
+                followingCount = row[UserProfileStatsView.followingCount],
+                postCount = row[UserProfileStatsView.postCount],
+                totalReceivedLikes = row[UserProfileStatsView.totalReceivedLikes],
+                isFollowing = isFollowing
+            )
+        }
     
     suspend fun userExists(username: String): Boolean = newSuspendedTransaction(Dispatchers.IO) {
         AuthTable.select { AuthTable.username eq username }

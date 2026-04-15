@@ -25,6 +25,8 @@ import com.foodfest.app.features.home.presentation.HomeScreen
 import com.foodfest.app.features.blindbox.presentation.BlindBoxScreen
 import com.foodfest.app.features.favorite.presentation.FavoriteDishesScreen
 import com.foodfest.app.features.personaldish.presentation.MyDishesScreen
+import com.foodfest.app.features.profile.presentation.MyPostsScreen
+import com.foodfest.app.features.profile.presentation.UserProfileScreen
 import com.foodfest.app.features.savedposts.presentation.SavedPostsScreen
 import com.foodfest.app.features.home.presentation.CreatePostScreen
 import com.foodfest.app.core.storage.TokenManager
@@ -43,6 +45,8 @@ enum class Screen {
     DishDetail,
     Favorites,
     MyDishes,
+    MyPosts,
+    UserProfile,
     SavedPosts,
     CreatePost
 }
@@ -57,6 +61,8 @@ fun App() {
         var isCheckingAuth by remember { mutableStateOf(true) }
         var currentTab by remember { mutableStateOf(MainTab.Home) }
         var selectedDishId by remember { mutableStateOf<Int?>(null) }
+        var selectedUserProfileId by remember { mutableStateOf<Int?>(null) }
+        var previousScreenBeforeUserProfile by remember { mutableStateOf(Screen.Main) }
         
         val authRepository = remember { AuthRepository() }
         val scope = rememberCoroutineScope()
@@ -168,11 +174,19 @@ fun App() {
                             onNavigateToMyDishes = {
                                 currentScreen = Screen.MyDishes
                             },
+                            onNavigateToMyPosts = {
+                                currentScreen = Screen.MyPosts
+                            },
                             onNavigateToSavedPosts = {
                                 currentScreen = Screen.SavedPosts
                             },
                             onNavigateToCreatePost = {
                                 currentScreen = Screen.CreatePost
+                            },
+                            onNavigateToUserProfile = { userId ->
+                                selectedUserProfileId = userId
+                                previousScreenBeforeUserProfile = Screen.Main
+                                currentScreen = Screen.UserProfile
                             }
                         )
                     }
@@ -230,12 +244,37 @@ fun App() {
                             }
                         )
                     }
+
+                    Screen.MyPosts -> {
+                        MyPostsScreen(
+                            userId = currentUser?.id,
+                            onBack = {
+                                currentScreen = Screen.Main
+                                currentTab = MainTab.Profile
+                            }
+                        )
+                    }
+
+                    Screen.UserProfile -> {
+                        UserProfileScreen(
+                            userId = selectedUserProfileId,
+                            currentUserId = currentUser?.id,
+                            onBack = {
+                                currentScreen = previousScreenBeforeUserProfile
+                            }
+                        )
+                    }
                     
                     Screen.SavedPosts -> {
                         SavedPostsScreen(
                             onBack = {
                                 currentScreen = Screen.Main
                                 currentTab = MainTab.Profile
+                            },
+                            onNavigateToUserProfile = { userId ->
+                                selectedUserProfileId = userId
+                                previousScreenBeforeUserProfile = Screen.SavedPosts
+                                currentScreen = Screen.UserProfile
                             }
                         )
                     }
@@ -269,14 +308,18 @@ private fun MainScreen(
     onNavigateToDishDetail: (Int) -> Unit,
     onNavigateToFavorites: () -> Unit,
     onNavigateToMyDishes: () -> Unit,
+    onNavigateToMyPosts: () -> Unit,
     onNavigateToSavedPosts: () -> Unit,
-    onNavigateToCreatePost: () -> Unit
+    onNavigateToCreatePost: () -> Unit,
+    onNavigateToUserProfile: (Int) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
             when (currentTab) {
                 MainTab.Home -> HomeScreen(
-                    onNavigateToCreatePost = onNavigateToCreatePost
+                    onNavigateToCreatePost = onNavigateToCreatePost,
+                    currentUserId = user?.id,
+                    onNavigateToUserProfile = onNavigateToUserProfile
                 )
                 MainTab.Dish -> DishListScreen()
                 MainTab.BlindBox -> BlindBoxScreen(
@@ -289,6 +332,7 @@ private fun MainScreen(
                     onNavigateToDishUpload = onNavigateToDishUpload,
                     onNavigateToFavorites = onNavigateToFavorites,
                     onNavigateToMyDishes = onNavigateToMyDishes,
+                    onNavigateToMyPosts = onNavigateToMyPosts,
                     onNavigateToSavedPosts = onNavigateToSavedPosts
                 )
             }

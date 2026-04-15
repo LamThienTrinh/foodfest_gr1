@@ -14,6 +14,8 @@ import com.foodfest.app.theme.AppColors
 @Composable
 fun EmptyPostsState(
     modifier: Modifier = Modifier,
+    title: String = "Chưa có bài viết nào",
+    description: String = "Hãy là người đầu tiên chia sẻ món ngon của bạn!",
     onRefresh: () -> Unit = {}
 ) {
     Column(
@@ -31,7 +33,7 @@ fun EmptyPostsState(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Chưa có bài viết nào",
+            text = title,
             fontSize = 18.sp,
             color = AppColors.TextPrimary
         )
@@ -39,7 +41,7 @@ fun EmptyPostsState(
         Spacer(modifier = Modifier.height(8.dp))
         
         Text(
-            text = "Hãy là người đầu tiên chia sẻ món ngon của bạn!",
+            text = description,
             fontSize = 14.sp,
             color = AppColors.GrayPlaceholder,
             textAlign = TextAlign.Center
