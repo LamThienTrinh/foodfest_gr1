@@ -170,10 +170,10 @@ fun FamilyDayMenuScreen(
                             tint = AppColors.Orange
                         )
                     }
-                    IconButton(onClick = viewModel::showSavePresetDialog) {
+                    IconButton(onClick = { viewModel.showSavePresetDialog("$mealLabel $menuDate") }) {
                         Icon(
                             imageVector = Icons.Default.Bookmark,
-                            contentDescription = "Lưu preset",
+                            contentDescription = "Lưu bữa ăn mẫu",
                             tint = AppColors.Orange
                         )
                     }
@@ -804,7 +804,7 @@ private fun SavePresetDialog(
                 FoodFestTextField(
                     value = state.presetNameInput,
                     onValueChange = onNameChange,
-                    placeholder = "Nhập tên preset"
+                    placeholder = "Nhập tên bữa ăn mẫu"
                 )
                 if (!state.savePresetError.isNullOrBlank()) {
                     Text(

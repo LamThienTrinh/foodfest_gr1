@@ -1,6 +1,7 @@
 package com.foodfest.app.features.family.presentation
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -247,7 +249,7 @@ private fun WeeklyMenuContent(
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = if (state.isGeneratingShoppingList) "Đang tạo shopping list..." else "Generate Shopping List")
+            Text(text = if (state.isGeneratingShoppingList) "Đang tạo danh sách mua..." else "Tạo danh sách mua sắm")
         }
         if (!state.shoppingListError.isNullOrBlank()) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -376,17 +378,23 @@ private fun CreateMenuDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(text = if (isCreating) "Đang tạo..." else "Build from scratch")
+                    Text(text = if (isCreating) "Đang tạo..." else "Tạo thủ công")
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(
+                OutlinedButton(
                     onClick = { onPickFromSaved(slot.first, slot.second.mealType) },
                     enabled = !isCreating,
-                    colors = ButtonDefaults.buttonColors(containerColor = AppColors.Background),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.White,
+                        contentColor = AppColors.TextPrimary,
+                        disabledContainerColor = Color.White,
+                        disabledContentColor = AppColors.TextSecondary
+                    ),
+                    border = BorderStroke(1.dp, AppColors.Orange.copy(alpha = 0.45f)),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(text = if (isCreating) "Đang tạo..." else "Pick from Saved Meals")
+                    Text(text = if (isCreating) "Đang tạo..." else "Chọn từ bữa đã lưu")
                 }
             }
         },

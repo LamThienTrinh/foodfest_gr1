@@ -117,8 +117,13 @@ class FamilyDayMenuViewModel(
     /**
      * Shows dialog to save current menu as preset.
      */
-    fun showSavePresetDialog() {
-        state = state.copy(showSavePresetDialog = true, savePresetError = null)
+    fun showSavePresetDialog(defaultName: String = "") {
+        val input = state.presetNameInput.ifBlank { defaultName }
+        state = state.copy(
+            showSavePresetDialog = true,
+            presetNameInput = input,
+            savePresetError = null
+        )
     }
 
     /**
@@ -150,7 +155,7 @@ class FamilyDayMenuViewModel(
 
         val presetName = state.presetNameInput.trim()
         if (presetName.isBlank()) {
-            state = state.copy(savePresetError = "Vui lòng nhập tên preset")
+            state = state.copy(savePresetError = "Vui lòng nhập tên bữa ăn mẫu")
             return
         }
 
@@ -161,14 +166,14 @@ class FamilyDayMenuViewModel(
                 onSuccess = {
                     state = state.copy(
                         isSavingPreset = false,
-                        savePresetSuccessMessage = "Đã lưu preset"
+                        savePresetSuccessMessage = "Đã lưu bữa ăn mẫu"
                     )
                     hideSavePresetDialog()
                 },
                 onFailure = { error ->
                     state = state.copy(
                         isSavingPreset = false,
-                        savePresetError = error.message ?: "Không thể lưu preset"
+                        savePresetError = error.message ?: "Không thể lưu bữa ăn mẫu"
                     )
                 }
             )

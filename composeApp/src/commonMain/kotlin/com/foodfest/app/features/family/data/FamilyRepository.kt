@@ -10,6 +10,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import kotlinx.serialization.Serializable
@@ -38,6 +39,11 @@ class FamilyRepository {
         } else {
             emptyMap()
         }
+    }
+
+    private suspend fun apiErrorMessage(response: HttpResponse, fallback: String): String {
+        val serverMessage = runCatching { response.body<ApiResponse<Unit>>().message }.getOrNull()
+        return serverMessage?.takeIf { it.isNotBlank() } ?: "$fallback (${response.status})"
     }
 
     /**
@@ -858,7 +864,7 @@ class FamilyRepository {
         presetName: String
     ): Result<FamilySavedMealDetail> {
         return try {
-            val response = client.post("$baseUrl/api/families/$familyId/saved-meals/from-menu/$menuId") {
+            val response = client.post("$baseUrl/api/families/$familyId/menus/$menuId/saved-meals") {
                 contentType(ContentType.Application.Json)
                 getAuthHeaders().forEach { (key, value) ->
                     header(key, value)
@@ -867,14 +873,14 @@ class FamilyRepository {
             }
 
             if (response.status.value !in 200..299) {
-                return Result.failure(Exception("Lỗi: ${response.status}"))
+                return Result.failure(Exception(apiErrorMessage(response, "Không thể lưu bữa ăn mẫu")))
             }
 
             val apiResponse = response.body<ApiResponse<FamilySavedMealDetail>>()
             if (apiResponse.success && apiResponse.data != null) {
                 Result.success(apiResponse.data)
             } else {
-                Result.failure(Exception(apiResponse.message ?: "Failed to create saved meal"))
+                Result.failure(Exception(apiResponse.message ?: "Không thể lưu bữa ăn mẫu"))
             }
         } catch (e: Exception) {
             Result.failure(e)

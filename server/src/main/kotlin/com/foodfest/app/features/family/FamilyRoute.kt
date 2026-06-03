@@ -252,6 +252,29 @@ fun Route.familyRoutes(familyService: FamilyService) {
                     }
             }
 
+            // Alias keeps save-from-menu consistent with other menu-scoped actions.
+            post("/{familyId}/menus/{menuId}/saved-meals") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val menuId = call.parameters["menuId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid menu id"))
+
+                val request = runCatching { call.receive<CreateFamilySavedMealRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.createSavedMealFromMenu(principal.userId, familyId, menuId, request)
+                    .onSuccess { savedMeal ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(savedMeal, "Saved meal created"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to create saved meal"))
+                    }
+            }
+
             get("/{familyId}/saved-meals/{savedMealId}") {
                 val principal = call.principal<JWTPrincipal>()
                     ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
