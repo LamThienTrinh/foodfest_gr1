@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,9 +28,13 @@ fun PostSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     onSearch: () -> Unit,
+    searchType: String = "post", // "post" hoặc "user"
+    onSearchTypeChange: (String) -> Unit = {},
     modifier: Modifier = Modifier,
     placeholder: String = "Tìm kiếm theo tiêu đề..."
 ) {
+    val currentPlaceholder = if (searchType == "user") "Tìm kiếm người dùng..." else placeholder
+
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
@@ -65,7 +70,7 @@ fun PostSearchBar(
                 decorationBox = { innerTextField ->
                     if (query.isEmpty()) {
                         Text(
-                            text = placeholder,
+                            text = currentPlaceholder,
                             fontSize = 14.sp,
                             color = AppColors.GrayPlaceholder
                         )
@@ -83,6 +88,25 @@ fun PostSearchBar(
                     modifier = Modifier
                         .size(18.dp)
                         .clickable { onQueryChange("") }
+                )
+            }
+            
+            // Nút nhấn để thay đổi chế độ tìm kiếm: Bài Viết hoặc Người Dùng
+            Spacer(modifier = Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (searchType == "user") AppColors.Orange else Color.White,
+                modifier = Modifier.clickable { 
+                    val newType = if (searchType == "post") "user" else "post"
+                    onSearchTypeChange(newType)
+                }
+            ) {
+                Text(
+                    text = if (searchType == "user") "👤 Ng.Dùng" else "📝 Bài",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (searchType == "user") Color.White else AppColors.TextPrimary,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
         }

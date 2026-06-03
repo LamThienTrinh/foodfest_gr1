@@ -56,6 +56,10 @@ import com.foodfest.app.features.home.data.PostRepository
 import com.foodfest.app.theme.AppColors
 import foodfest.composeapp.generated.resources.Res
 import foodfest.composeapp.generated.resources.default_avatar
+import com.foodfest.app.features.home.data.Comment
+import com.foodfest.app.features.home.presentation.models.CommentThreadState
+import com.foodfest.app.features.home.presentation.components.CommentBottomSheet
+import com.foodfest.app.features.home.presentation.components.PostCard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -71,7 +75,18 @@ data class UserProfileState(
     val isPostsLoading: Boolean = false,
     val postsErrorMessage: String? = null,
     val currentPage: Int = 1,
-    val hasMorePages: Boolean = true
+    val hasMorePages: Boolean = true,
+    val isCommentSheetVisible: Boolean = false,
+    val selectedCommentPostId: Int? = null,
+    val selectedPostCommentCount: Int = 0,
+    val comments: List<Comment> = emptyList(),
+    val isCommentsLoading: Boolean = false,
+    val commentsErrorMessage: String? = null,
+    val commentInput: String = "",
+    val isCommentSubmitting: Boolean = false,
+    val commentThreadStates: Map<Int, CommentThreadState> = emptyMap(),
+    val selectedReplyCommentId: Int? = null,
+    val selectedReplyUserName: String? = null
 )
 
 class UserProfileViewModel(
@@ -79,6 +94,10 @@ class UserProfileViewModel(
     private val postRepository: PostRepository = PostRepository(),
     private val followRepository: FollowRepository = FollowRepository()
 ) {
+    private companion object {
+        const val COMMENTS_PAGE_LIMIT = 20
+        const val REPLIES_PAGE_LIMIT = 10
+    }
     var state by mutableStateOf(UserProfileState())
         private set
 
@@ -230,6 +249,221 @@ class UserProfileViewModel(
             )
         }
     }
+
+    // --- Xử lý Like bài đăng ---
+    fun likePost(postId: Int) {
+        scope.launch {
+            postRepository.likePost(postId).onSuccess { likeResult ->
+                state = state.copy(
+                    posts = state.posts.map { post ->
+                        if (post.id == postId) post.copy(isLiked = likeResult.isLiked, likeCount = likeResult.likeCount) else post
+                    }
+                )
+            }
+        }
+    }
+
+    // --- State helpers cho Comment ---
+    private fun defaultThreadState(comment: Comment): CommentThreadState {
+        return CommentThreadState(
+            expanded = false,
+            replies = emptyList(),
+            isLoadingReplies = false,
+            hasMoreReplies = comment.replyCount > 0,
+            currentRepliesPage = 1,
+            repliesErrorMessage = null
+        )
+    }
+
+    private fun buildInitialThreadStates(comments: List<Comment>): Map<Int, CommentThreadState> {
+        return comments.associate { comment ->
+            comment.id to defaultThreadState(comment)
+        }
+    }
+
+    private fun updateThreadState(
+        commentId: Int,
+        transform: (CommentThreadState) -> CommentThreadState
+    ) {
+        val parentComment = state.comments.firstOrNull { it.id == commentId }
+        val current = state.commentThreadStates[commentId]
+            ?: parentComment?.let { defaultThreadState(it) }
+            ?: CommentThreadState()
+
+        state = state.copy(
+            commentThreadStates = state.commentThreadStates + (commentId to transform(current))
+        )
+    }
+
+    suspend fun openComments(postId: Int, totalCommentCount: Int) {
+        state = state.copy(
+            isCommentSheetVisible = true,
+            selectedCommentPostId = postId,
+            selectedPostCommentCount = totalCommentCount,
+            selectedReplyCommentId = null,
+            selectedReplyUserName = null,
+            comments = emptyList(),
+            commentThreadStates = emptyMap(),
+            isCommentsLoading = true,
+            isCommentSubmitting = false,
+            commentsErrorMessage = null,
+            commentInput = ""
+        )
+        loadCommentsForSelectedPost()
+    }
+
+    fun closeComments() {
+        state = state.copy(
+            isCommentSheetVisible = false,
+            selectedCommentPostId = null,
+            selectedPostCommentCount = 0,
+            selectedReplyCommentId = null,
+            selectedReplyUserName = null,
+            comments = emptyList(),
+            commentThreadStates = emptyMap(),
+            isCommentsLoading = false,
+            isCommentSubmitting = false,
+            commentsErrorMessage = null,
+            commentInput = ""
+        )
+    }
+
+    fun updateCommentInput(input: String) { state = state.copy(commentInput = input) }
+
+    fun startReply(comment: Comment) {
+        if (comment.parentCommentId != null || comment.depth != 0) return
+        state = state.copy(selectedReplyCommentId = comment.id, selectedReplyUserName = comment.userName)
+    }
+
+    fun cancelReply() {
+        state = state.copy(selectedReplyCommentId = null, selectedReplyUserName = null)
+    }
+
+    suspend fun retryLoadComments() { loadCommentsForSelectedPost() }
+
+    suspend fun toggleCommentThread(comment: Comment) {
+        if (comment.replyCount <= 0) return
+        val currentThread = state.commentThreadStates[comment.id] ?: defaultThreadState(comment)
+        if (currentThread.expanded) {
+            updateThreadState(comment.id) { thread -> thread.copy(expanded = false, repliesErrorMessage = null) }
+            return
+        }
+
+        updateThreadState(comment.id) { thread -> thread.copy(expanded = true, repliesErrorMessage = null) }
+        val latest = state.commentThreadStates[comment.id] ?: defaultThreadState(comment)
+        if (latest.replies.isEmpty() && latest.hasMoreReplies && !latest.isLoadingReplies) {
+            loadRepliesForThread(comment.id)
+        }
+    }
+
+    suspend fun loadMoreReplies(parentCommentId: Int) { loadRepliesForThread(parentCommentId) }
+
+    private suspend fun loadRepliesForThread(parentCommentId: Int) {
+        val parentComment = state.comments.firstOrNull { it.id == parentCommentId } ?: return
+        if (parentComment.replyCount <= 0) return
+
+        val currentThread = state.commentThreadStates[parentCommentId] ?: defaultThreadState(parentComment)
+        if (currentThread.isLoadingReplies || !currentThread.hasMoreReplies) return
+
+        val page = currentThread.currentRepliesPage
+        updateThreadState(parentCommentId) { thread -> thread.copy(expanded = true, isLoadingReplies = true, repliesErrorMessage = null) }
+
+        postRepository.getReplies(commentId = parentCommentId, page = page, limit = REPLIES_PAGE_LIMIT).fold(
+            onSuccess = { response ->
+                val mergedReplies = (currentThread.replies + response.data).distinctBy { it.id }
+                val hasMoreReplies = mergedReplies.size < response.total
+                val nextPage = if (hasMoreReplies) page + 1 else page
+                updateThreadState(parentCommentId) { thread ->
+                    thread.copy(expanded = true, replies = mergedReplies, isLoadingReplies = false, hasMoreReplies = hasMoreReplies, currentRepliesPage = nextPage, repliesErrorMessage = null)
+                }
+            },
+            onFailure = { error ->
+                updateThreadState(parentCommentId) { thread ->
+                    thread.copy(expanded = true, isLoadingReplies = false, repliesErrorMessage = error.message ?: "Không thể tải phản hồi")
+                }
+            }
+        )
+    }
+
+    suspend fun submitComment() {
+        val postId = state.selectedCommentPostId ?: return
+        val content = state.commentInput.trim()
+        if (content.isEmpty() || state.isCommentSubmitting) return
+
+        val parentCommentId = state.selectedReplyCommentId
+        state = state.copy(isCommentSubmitting = true, commentsErrorMessage = null)
+
+        postRepository.addComment(postId, content, parentCommentId).fold(
+            onSuccess = { createdComment ->
+                if (parentCommentId == null) {
+                    state = state.copy(
+                        comments = state.comments + createdComment,
+                        commentThreadStates = state.commentThreadStates + (createdComment.id to defaultThreadState(createdComment)),
+                        commentInput = "",
+                        isCommentSubmitting = false,
+                        commentsErrorMessage = null,
+                        selectedPostCommentCount = state.selectedPostCommentCount + 1,
+                        selectedReplyCommentId = null,
+                        selectedReplyUserName = null,
+                        posts = state.posts.map { post ->
+                            if (post.id == postId) post.copy(commentCount = post.commentCount + 1) else post
+                        }
+                    )
+                } else {
+                    val updatedComments = state.comments.map { comment ->
+                        if (comment.id == parentCommentId) comment.copy(replyCount = comment.replyCount + 1) else comment
+                    }
+                    val parentComment = updatedComments.firstOrNull { it.id == parentCommentId }
+                    val currentThread = state.commentThreadStates[parentCommentId] ?: parentComment?.let { defaultThreadState(it) } ?: CommentThreadState()
+                    val updatedReplies = (currentThread.replies + createdComment).distinctBy { it.id }
+                    val totalReplies = parentComment?.replyCount ?: updatedReplies.size
+                    val hasMoreReplies = updatedReplies.size < totalReplies
+                    val updatedThread = currentThread.copy(expanded = true, replies = updatedReplies, isLoadingReplies = false, hasMoreReplies = hasMoreReplies, repliesErrorMessage = null)
+
+                    state = state.copy(
+                        comments = updatedComments,
+                        commentThreadStates = state.commentThreadStates + (parentCommentId to updatedThread),
+                        commentInput = "",
+                        isCommentSubmitting = false,
+                        commentsErrorMessage = null,
+                        selectedPostCommentCount = state.selectedPostCommentCount + 1,
+                        selectedReplyCommentId = null,
+                        selectedReplyUserName = null,
+                        posts = state.posts.map { post ->
+                            if (post.id == postId) post.copy(commentCount = post.commentCount + 1) else post
+                        }
+                    )
+                }
+            },
+            onFailure = { e ->
+                state = state.copy(isCommentSubmitting = false, commentsErrorMessage = e.message ?: "Không thể gửi bình luận")
+            }
+        )
+    }
+
+    private suspend fun loadCommentsForSelectedPost() {
+        val postId = state.selectedCommentPostId
+        if (postId == null) {
+            state = state.copy(isCommentsLoading = false)
+            return
+        }
+        state = state.copy(isCommentsLoading = true, commentsErrorMessage = null)
+        postRepository.getComments(postId = postId, page = 1, limit = COMMENTS_PAGE_LIMIT).fold(
+            onSuccess = { response ->
+                val derivedTotalCommentCount = if (state.selectedPostCommentCount > 0) state.selectedPostCommentCount else response.data.size + response.data.sumOf { it.replyCount }
+                state = state.copy(
+                    comments = response.data,
+                    commentThreadStates = buildInitialThreadStates(response.data),
+                    isCommentsLoading = false,
+                    commentsErrorMessage = null,
+                    selectedPostCommentCount = derivedTotalCommentCount
+                )
+            },
+            onFailure = { e ->
+                state = state.copy(isCommentsLoading = false, commentsErrorMessage = e.message ?: "Không thể tải bình luận")
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -242,6 +476,7 @@ fun UserProfileScreen(
 ) {
     val state = viewModel.state
     val listState = rememberLazyListState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     LaunchedEffect(userId, currentUserId) {
         if (userId != null && userId > 0) {
@@ -388,7 +623,16 @@ fun UserProfileScreen(
                             }
 
                             items(state.posts, key = { it.id }) { post ->
-                                UserPostHistoryCard(post = post)
+                                PostCard(
+                                    post = post,
+                                    onLikeClick = { viewModel.likePost(post.id) },
+                                    onCommentClick = { 
+                                        scope.launch { viewModel.openComments(post.id, post.commentCount) }
+                                    },
+                                    onSaveClick = { }, // Đã bị ẩn trên MyPosts/Profile
+                                    onUserClick = { },
+                                    showFollowButton = false
+                                )
                             }
 
                             if (state.isPostsLoading) {
@@ -424,6 +668,28 @@ fun UserProfileScreen(
                         }
                 }
             }
+        }
+
+        // Tích hợp thanh Comment Bottom Sheet
+        if (state.isCommentSheetVisible) {
+            CommentBottomSheet(
+                comments = state.comments,
+                totalCommentCount = state.selectedPostCommentCount,
+                threadStates = state.commentThreadStates,
+                inputText = state.commentInput,
+                replyingToUserName = state.selectedReplyUserName,
+                isLoading = state.isCommentsLoading,
+                isSubmitting = state.isCommentSubmitting,
+                errorMessage = state.commentsErrorMessage,
+                onToggleThread = { scope.launch { viewModel.toggleCommentThread(it) } },
+                onReplyClick = { viewModel.startReply(it) },
+                onLoadMoreReplies = { scope.launch { viewModel.loadMoreReplies(it) } },
+                onInputTextChange = { viewModel.updateCommentInput(it) },
+                onCancelReply = { viewModel.cancelReply() },
+                onSubmit = { scope.launch { viewModel.submitComment() } },
+                onDismiss = { viewModel.closeComments() },
+                onRetryLoad = { scope.launch { viewModel.retryLoadComments() } }
+            )
         }
     }
 }
@@ -540,61 +806,7 @@ private fun ProfileStatChip(label: String, value: Int) {
     }
 }
 
-@Composable
-private fun UserPostHistoryCard(post: Post) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(14.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = post.title?.takeIf { it.isNotBlank() } ?: "Bài đăng không tiêu đề",
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = AppColors.TextPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            if (!post.content.isNullOrBlank()) {
-                Text(
-                    text = post.content,
-                    fontSize = 14.sp,
-                    color = AppColors.TextSecondary,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "❤ ${post.likeCount}   💬 ${post.commentCount}",
-                    fontSize = 13.sp,
-                    color = AppColors.GrayPlaceholder
-                )
-                Text(
-                    text = post.createdAt,
-                    fontSize = 12.sp,
-                    color = AppColors.GrayPlaceholder,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 12.dp)
-                )
-            }
-        }
-    }
-}
+// Đã xóa UserPostHistoryCard do chuyển sang dùng chung PostCard
 
 @Composable
 private fun ProfileStateMessage(

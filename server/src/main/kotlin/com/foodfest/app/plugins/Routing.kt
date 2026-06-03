@@ -11,6 +11,8 @@ import com.foodfest.app.features.follow.FollowService
 import com.foodfest.app.features.follow.followRoutes
 import com.foodfest.app.features.personaldish.PersonalDishService
 import com.foodfest.app.features.personaldish.personalDishRoutes
+import com.foodfest.app.features.notification.NotificationService
+import com.foodfest.app.features.notification.notificationRoutes
 import com.foodfest.app.features.post.PostService
 import com.foodfest.app.features.post.postRoutes
 import com.foodfest.app.features.tag.TagService
@@ -32,6 +34,7 @@ fun Application.configureRouting() {
     val postService = koin.get<PostService>()
     val followService = koin.get<FollowService>()
     val familyService = koin.get<FamilyService>()
+    val notificationService = koin.get<NotificationService>()
     
     routing {
         get("/") {
@@ -51,6 +54,7 @@ fun Application.configureRouting() {
         postRoutes(postService)
         followRoutes(followService)
         familyRoutes(familyService)
+        notificationRoutes(notificationService)
         uploadRoutes()
     }
 }

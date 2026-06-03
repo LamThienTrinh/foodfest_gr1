@@ -14,7 +14,11 @@ import kotlinx.serialization.Serializable
 
 // Response DTOs
 @Serializable
-data class DeletePostData(val deleted: Boolean, val message: String)
+data class DeletePostData(
+    val deleted: Boolean,
+    val postId: Int,
+    val message: String
+)
 
 fun Route.postRoutes(postService: PostService) {
     route("/api/posts") {
@@ -84,10 +88,33 @@ fun Route.postRoutes(postService: PostService) {
 
                 postService.deletePost(principal.userId, postId)
                     .onSuccess {
-                        call.respond(HttpStatusCode.OK, ApiResponse.success(DeletePostData(true, "Đã xóa bài viết")))
+                        call.respond(
+                            HttpStatusCode.OK,
+                            ApiResponse.success(DeletePostData(true, postId, "Đã xóa bài viết"))
+                        )
                     }
                     .onFailure { error ->
                         call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to delete post"))
+                    }
+            }
+
+            // Cập nhật bài viết của chính mình.
+            put("/{postId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@put call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val postId = call.parameters["postId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
+
+                val request = runCatching { call.receive<UpdatePostRequest>() }.getOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                postService.updatePost(principal.userId, postId, request)
+                    .onSuccess { updatedPost ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(updatedPost, "Đã cập nhật bài viết"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to update post"))
                     }
             }
 
@@ -158,8 +185,23 @@ fun Route.postRoutes(postService: PostService) {
             val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
             val search = call.request.queryParameters["search"]?.takeIf { it.isNotBlank() }
             val postType = call.request.queryParameters["postType"]?.takeIf { it.isNotBlank() }
+            val searchType = call.request.queryParameters["searchType"]?.trim()?.lowercase() ?: "post"
 
-            postService.getPosts(page, principal?.userId, search, postType)
+            // Parse boolean chặt để tránh gọi sai contract.
+            val includeTrendingRaw = call.request.queryParameters["includeTrending"]
+            val includeTrending = when (includeTrendingRaw?.trim()?.lowercase()) {
+                null -> false
+                "true" -> true
+                "false" -> false
+                else -> {
+                    return@get call.respond(
+                        HttpStatusCode.BadRequest,
+                        ApiResponse.error<Unit>("includeTrending must be true or false")
+                    )
+                }
+            }
+
+            postService.getPosts(page, principal?.userId, search, postType, searchType, includeTrending)
                 .onSuccess { result ->
                     call.respond(HttpStatusCode.OK, ApiResponse.success(result))
                 }
@@ -250,8 +292,10 @@ fun Route.postRoutes(postService: PostService) {
                 ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid user id"))
 
             val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+            val startDate = call.request.queryParameters["startDate"]
+            val endDate = call.request.queryParameters["endDate"]
 
-            postService.getUserPosts(userId, page, principal?.userId)
+            postService.getUserPosts(userId, page, principal?.userId, startDate, endDate)
                 .onSuccess { result ->
                     call.respond(HttpStatusCode.OK, ApiResponse.success(result))
                 }

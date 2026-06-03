@@ -16,6 +16,9 @@ data class Post(
     val commentCount: Int = 0,
     val isLiked: Boolean = false,
     val isSaved: Boolean = false,
+    val trendScore: Int? = null,
+    val trendRank: Int? = null,
+    val isTrending: Boolean = false,
     val createdAt: String
 )
 
@@ -45,6 +48,20 @@ data class CreatePostRequest(
 data class CreateCommentRequest(
     val content: String,
     val parentCommentId: Int? = null
+)
+
+@Serializable
+data class UpdatePostRequest(
+    val title: String? = null,
+    val content: String? = null,
+    val imageUrl: String? = null
+)
+
+@Serializable
+data class DeletePostData(
+    val deleted: Boolean,
+    val postId: Int,
+    val message: String
 )
 
 @Serializable

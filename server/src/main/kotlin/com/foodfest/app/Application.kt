@@ -41,4 +41,5 @@ fun Application.module() {
     configureErrorHandling() // Centralized exception -> ApiResponse
     configureMonitoring()   // Request logging
     configureRouting()      // All API routes
+    configureBackgroundJobs() // Phase 6 scheduler jobs
 }

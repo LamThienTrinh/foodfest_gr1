@@ -11,6 +11,7 @@ data class HomeState(
     val currentPage: Int = 1,
     val hasMorePages: Boolean = true,
     val searchQuery: String = "",
+    val searchType: String = "post", // "post" hoặc "user"
     val selectedPostType: String? = null,  // null = all types
     val feedMode: HomeFeedMode = HomeFeedMode.ALL,
     val isCommentSheetVisible: Boolean = false,

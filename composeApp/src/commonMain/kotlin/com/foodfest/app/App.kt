@@ -24,6 +24,18 @@ import com.foodfest.app.features.dish.presentation.DishDetailScreen
 import com.foodfest.app.features.home.presentation.HomeScreen
 import com.foodfest.app.features.blindbox.presentation.BlindBoxScreen
 import com.foodfest.app.features.favorite.presentation.FavoriteDishesScreen
+import com.foodfest.app.features.family.presentation.FamilyHomeScreen
+import com.foodfest.app.features.family.presentation.FamilyMembersScreen
+import com.foodfest.app.features.family.presentation.FamilyWeeklyMenuScreen
+import com.foodfest.app.features.family.presentation.FamilyDayMenuScreen
+import com.foodfest.app.features.family.presentation.FamilySavedMealsScreen
+import com.foodfest.app.features.family.presentation.FamilyPantryScreen
+import com.foodfest.app.features.family.presentation.FamilyShoppingListScreen
+import com.foodfest.app.features.family.presentation.FamilyNotesScreen
+import com.foodfest.app.features.family.presentation.FamilyRecentVotesScreen
+import com.foodfest.app.features.notification.data.AppNotification
+import com.foodfest.app.features.notification.presentation.NotificationScreen
+import com.foodfest.app.core.cache.SharedDishNameCache
 import com.foodfest.app.features.personaldish.presentation.MyDishesScreen
 import com.foodfest.app.features.profile.presentation.MyPostsScreen
 import com.foodfest.app.features.profile.presentation.UserProfileScreen
@@ -48,7 +60,17 @@ enum class Screen {
     MyPosts,
     UserProfile,
     SavedPosts,
-    CreatePost
+    CreatePost,
+    FamilyHome,
+    FamilyMembers,
+    FamilyWeeklyMenu,
+    FamilySavedMeals,
+    FamilyDayMenu,
+    FamilyPantry,
+    FamilyShoppingList,
+    FamilyNotes,
+    FamilyRecentVotes,
+    Notifications
 }
 
 @Composable
@@ -62,10 +84,58 @@ fun App() {
         var currentTab by remember { mutableStateOf(MainTab.Home) }
         var selectedDishId by remember { mutableStateOf<Int?>(null) }
         var selectedUserProfileId by remember { mutableStateOf<Int?>(null) }
+        var selectedFamilyId by remember { mutableStateOf<Int?>(null) }
+        var selectedFamilyMenuId by remember { mutableStateOf<Int?>(null) }
+        var selectedFamilyMenuDate by remember { mutableStateOf<String?>(null) }
+        var selectedFamilyMealType by remember { mutableStateOf<String?>(null) }
+        var selectedFamilyShoppingListId by remember { mutableStateOf<Int?>(null) }
+        var openFamilyVoteOnEntry by remember { mutableStateOf(false) }
         var previousScreenBeforeUserProfile by remember { mutableStateOf(Screen.Main) }
+        var previousScreenBeforeSavedMeals by remember { mutableStateOf(Screen.FamilyHome) }
+        var previousTabBeforeSavedMeals by remember { mutableStateOf(MainTab.Family) }
         
         val authRepository = remember { AuthRepository() }
         val scope = rememberCoroutineScope()
+
+        fun clearSessionState() {
+            scope.launch {
+                SharedDishNameCache.clear()
+            }
+            TokenManager.clearAll()
+            authToken = null
+            currentUser = null
+        }
+
+        fun parseTrailingId(value: String): Int? {
+            return value.substringAfterLast("/", missingDelimiterValue = "").toIntOrNull()
+        }
+
+        fun openFamilyHome(familyId: Int? = null) {
+            selectedFamilyId = familyId
+            currentTab = MainTab.Family
+            currentScreen = Screen.FamilyHome
+        }
+
+        fun handleNotificationNavigation(notification: AppNotification) {
+            val actionUrl = notification.actionUrl.orEmpty()
+            when {
+                actionUrl.startsWith("foodfest://family/pantry/") -> {
+                    selectedFamilyId = parseTrailingId(actionUrl)
+                    currentScreen = Screen.FamilyPantry
+                }
+                actionUrl.startsWith("foodfest://families/invites/") -> {
+                    openFamilyHome()
+                }
+                actionUrl.startsWith("foodfest://family/") -> {
+                    openFamilyHome(parseTrailingId(actionUrl))
+                }
+                notification.type.startsWith("family") ||
+                    notification.type.startsWith("pantry") ||
+                    notification.relatedEntityType?.startsWith("family") == true -> {
+                    openFamilyHome()
+                }
+            }
+        }
         
         //  Kiểm tra token khi app khởi động
         LaunchedEffect(Unit) {
@@ -84,7 +154,7 @@ fun App() {
                         }
                         .onFailure {
                             println(" Token không hợp lệ hoặc đã hết hạn")
-                            TokenManager.clearAll()
+                            clearSessionState()
                         }
                     isCheckingAuth = false
                 }
@@ -152,9 +222,7 @@ fun App() {
                             onSelectTab = { currentTab = it },
                             user = currentUser,
                             onLogout = {
-                                TokenManager.clearAll()
-                                authToken = null
-                                currentUser = null
+                                clearSessionState()
                                 currentScreen = Screen.Auth
                                 currentTab = MainTab.Home
                             },
@@ -180,6 +248,43 @@ fun App() {
                             onNavigateToSavedPosts = {
                                 currentScreen = Screen.SavedPosts
                             },
+                            onNavigateToFamilyHome = {
+                                currentScreen = Screen.FamilyHome
+                            },
+                            onNavigateToFamilyWeeklyMenu = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyWeeklyMenu
+                            },
+                            onNavigateToFamilySavedMeals = { familyId ->
+                                selectedFamilyId = familyId
+                                selectedFamilyMenuId = null
+                                selectedFamilyMenuDate = null
+                                selectedFamilyMealType = null
+                                previousScreenBeforeSavedMeals = Screen.Main
+                                previousTabBeforeSavedMeals = MainTab.Family
+                                currentScreen = Screen.FamilySavedMeals
+                            },
+                            onNavigateToFamilyMembers = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyMembers
+                            },
+                            onNavigateToFamilyPantry = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyPantry
+                            },
+                            onNavigateToFamilyShoppingList = { familyId, shoppingListId ->
+                                selectedFamilyId = familyId
+                                selectedFamilyShoppingListId = shoppingListId
+                                currentScreen = Screen.FamilyShoppingList
+                            },
+                            onNavigateToFamilyNotes = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyNotes
+                            },
+                            onNavigateToFamilyVotes = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyRecentVotes
+                            },
                             onNavigateToCreatePost = {
                                 currentScreen = Screen.CreatePost
                             },
@@ -187,6 +292,9 @@ fun App() {
                                 selectedUserProfileId = userId
                                 previousScreenBeforeUserProfile = Screen.Main
                                 currentScreen = Screen.UserProfile
+                            },
+                            onNavigateToNotifications = {
+                                currentScreen = Screen.Notifications
                             }
                         )
                     }
@@ -291,6 +399,193 @@ fun App() {
                             }
                         )
                     }
+
+                    // Family Home entry point.
+                    Screen.FamilyHome -> {
+                        FamilyHomeScreen(
+                            initialFamilyId = selectedFamilyId,
+                            onBack = {
+                                currentScreen = Screen.Main
+                                currentTab = MainTab.Profile
+                            },
+                            onNavigateToMembers = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyMembers
+                            },
+                            onNavigateToWeeklyMenu = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyWeeklyMenu
+                            },
+                            onNavigateToSavedMeals = { familyId ->
+                                selectedFamilyId = familyId
+                                selectedFamilyMenuId = null
+                                selectedFamilyMenuDate = null
+                                selectedFamilyMealType = null
+                                previousScreenBeforeSavedMeals = Screen.FamilyHome
+                                currentScreen = Screen.FamilySavedMeals
+                            },
+                            onNavigateToPantry = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyPantry
+                            },
+                            onNavigateToNotes = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyNotes
+                            },
+                            onNavigateToVotes = { familyId ->
+                                selectedFamilyId = familyId
+                                currentScreen = Screen.FamilyRecentVotes
+                            }
+                        )
+                    }
+
+                    // Family Members management screen.
+                    Screen.FamilyMembers -> {
+                        val familyId = selectedFamilyId ?: 0
+                        FamilyMembersScreen(
+                            familyId = familyId,
+                            currentUserId = currentUser?.id,
+                            onBack = {
+                                currentScreen = Screen.FamilyHome
+                            }
+                        )
+                    }
+
+                    Screen.FamilyWeeklyMenu -> {
+                        val familyId = selectedFamilyId ?: 0
+                        FamilyWeeklyMenuScreen(
+                            familyId = familyId,
+                            onBack = {
+                                currentScreen = Screen.FamilyHome
+                            },
+                            onOpenDayMenu = { menuId, menuDate, mealType ->
+                                selectedFamilyMenuId = menuId
+                                selectedFamilyMenuDate = menuDate
+                                selectedFamilyMealType = mealType
+                                currentScreen = Screen.FamilyDayMenu
+                            },
+                            onOpenSavedMeals = { menuId, menuDate, mealType ->
+                                selectedFamilyMenuId = menuId
+                                selectedFamilyMenuDate = menuDate
+                                selectedFamilyMealType = mealType
+                                previousScreenBeforeSavedMeals = Screen.FamilyWeeklyMenu
+                                currentScreen = Screen.FamilySavedMeals
+                            },
+                            onOpenShoppingList = { shoppingListId ->
+                                selectedFamilyShoppingListId = shoppingListId
+                                currentScreen = Screen.FamilyShoppingList
+                            }
+                        )
+                    }
+
+                    Screen.FamilySavedMeals -> {
+                        val familyId = selectedFamilyId ?: 0
+                        val menuId = selectedFamilyMenuId
+                        val menuDate = selectedFamilyMenuDate
+                        val mealType = selectedFamilyMealType
+                        FamilySavedMealsScreen(
+                            familyId = familyId,
+                            menuId = menuId,
+                            menuDate = menuDate,
+                            mealType = mealType,
+                            onBack = {
+                                if (previousScreenBeforeSavedMeals == Screen.Main) {
+                                    currentScreen = Screen.Main
+                                    currentTab = previousTabBeforeSavedMeals
+                                } else {
+                                    currentScreen = previousScreenBeforeSavedMeals
+                                }
+                            },
+                            onAppliedToMenu = { appliedMenuId, appliedDate, appliedMealType ->
+                                selectedFamilyMenuId = appliedMenuId
+                                selectedFamilyMenuDate = appliedDate
+                                selectedFamilyMealType = appliedMealType
+                                currentScreen = Screen.FamilyDayMenu
+                            }
+                        )
+                    }
+
+                    Screen.FamilyDayMenu -> {
+                        val familyId = selectedFamilyId ?: 0
+                        val menuId = selectedFamilyMenuId ?: 0
+                        val menuDate = selectedFamilyMenuDate.orEmpty()
+                        val mealType = selectedFamilyMealType.orEmpty()
+                        FamilyDayMenuScreen(
+                            familyId = familyId,
+                            menuId = menuId,
+                            menuDate = menuDate,
+                            mealType = mealType,
+                            openVoteOnEntry = openFamilyVoteOnEntry,
+                            onOpenVoteEntryHandled = {
+                                openFamilyVoteOnEntry = false
+                            },
+                            onBack = {
+                                currentScreen = Screen.FamilyWeeklyMenu
+                            }
+                        )
+                    }
+
+                    Screen.FamilyPantry -> {
+                        val familyId = selectedFamilyId ?: 0
+                        FamilyPantryScreen(
+                            familyId = familyId,
+                            onBack = {
+                                currentScreen = Screen.FamilyHome
+                            }
+                        )
+                    }
+
+                    Screen.FamilyShoppingList -> {
+                        val familyId = selectedFamilyId ?: 0
+                        val shoppingListId = selectedFamilyShoppingListId ?: 0
+                        FamilyShoppingListScreen(
+                            familyId = familyId,
+                            shoppingListId = shoppingListId,
+                            currentUserId = currentUser?.id,
+                            onBack = {
+                                currentScreen = Screen.FamilyWeeklyMenu
+                            }
+                        )
+                    }
+
+                    Screen.FamilyNotes -> {
+                        val familyId = selectedFamilyId ?: 0
+                        FamilyNotesScreen(
+                            familyId = familyId,
+                            onBack = {
+                                currentScreen = Screen.FamilyHome
+                            }
+                        )
+                    }
+
+                    Screen.FamilyRecentVotes -> {
+                        val familyId = selectedFamilyId ?: 0
+                        FamilyRecentVotesScreen(
+                            familyId = familyId,
+                            onBack = {
+                                currentScreen = Screen.FamilyHome
+                            },
+                            onOpenVoteMeal = { menuId, menuDate, mealType ->
+                                selectedFamilyMenuId = menuId
+                                selectedFamilyMenuDate = menuDate
+                                selectedFamilyMealType = mealType
+                                openFamilyVoteOnEntry = true
+                                currentScreen = Screen.FamilyDayMenu
+                            }
+                        )
+                    }
+
+                    Screen.Notifications -> {
+                        NotificationScreen(
+                            onBack = {
+                                currentScreen = Screen.Main
+                                currentTab = MainTab.Profile
+                            },
+                            onNotificationClick = { notification ->
+                                handleNotificationNavigation(notification)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -310,8 +605,17 @@ private fun MainScreen(
     onNavigateToMyDishes: () -> Unit,
     onNavigateToMyPosts: () -> Unit,
     onNavigateToSavedPosts: () -> Unit,
+    onNavigateToFamilyHome: () -> Unit,
+    onNavigateToFamilyWeeklyMenu: (Int) -> Unit,
+    onNavigateToFamilyMembers: (Int) -> Unit,
+    onNavigateToFamilySavedMeals: (Int) -> Unit,
+    onNavigateToFamilyPantry: (Int) -> Unit,
+    onNavigateToFamilyShoppingList: (Int, Int) -> Unit,
+    onNavigateToFamilyNotes: (Int) -> Unit,
+    onNavigateToFamilyVotes: (Int) -> Unit,
     onNavigateToCreatePost: () -> Unit,
-    onNavigateToUserProfile: (Int) -> Unit
+    onNavigateToUserProfile: (Int) -> Unit,
+    onNavigateToNotifications: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f)) {
@@ -325,6 +629,29 @@ private fun MainScreen(
                 MainTab.BlindBox -> BlindBoxScreen(
                     onNavigateToDishDetail = onNavigateToDishDetail
                 )
+                MainTab.Family -> FamilyHomeScreen(
+                    onBack = {
+                        onSelectTab(MainTab.Home)
+                    },
+                    onNavigateToMembers = { familyId ->
+                        onNavigateToFamilyMembers(familyId)
+                    },
+                    onNavigateToWeeklyMenu = { familyId ->
+                        onNavigateToFamilyWeeklyMenu(familyId)
+                    },
+                    onNavigateToSavedMeals = { familyId ->
+                        onNavigateToFamilySavedMeals(familyId)
+                    },
+                    onNavigateToPantry = { familyId ->
+                        onNavigateToFamilyPantry(familyId)
+                    },
+                    onNavigateToNotes = { familyId ->
+                        onNavigateToFamilyNotes(familyId)
+                    },
+                    onNavigateToVotes = { familyId ->
+                        onNavigateToFamilyVotes(familyId)
+                    }
+                )
                 MainTab.Profile -> ProfileScreen(
                     user = user,
                     onLogout = onLogout,
@@ -333,7 +660,9 @@ private fun MainScreen(
                     onNavigateToFavorites = onNavigateToFavorites,
                     onNavigateToMyDishes = onNavigateToMyDishes,
                     onNavigateToMyPosts = onNavigateToMyPosts,
-                    onNavigateToSavedPosts = onNavigateToSavedPosts
+                    onNavigateToSavedPosts = onNavigateToSavedPosts,
+                    onNavigateToFamilyHome = onNavigateToFamilyHome,
+                    onNavigateToNotifications = onNavigateToNotifications
                 )
             }
         }

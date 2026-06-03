@@ -114,6 +114,13 @@ fun HomeScreen(
                                     viewModel.searchPosts()
                                 }
                             },
+                            searchType = state.searchType, // Lấy trạng thái search type từ viewModel
+                            onSearchTypeChange = { type -> // Cập nhật trạng thái và tự động gọi API tìm kiếm
+                                viewModel.updateSearchType(type)
+                                scope.launch {
+                                    viewModel.searchPosts()
+                                }
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)

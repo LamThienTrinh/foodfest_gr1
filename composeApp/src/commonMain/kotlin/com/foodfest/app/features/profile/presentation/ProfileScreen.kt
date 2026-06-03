@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -45,7 +47,9 @@ fun ProfileScreen(
     onNavigateToMyDishes: () -> Unit = {},
     onNavigateToMyPosts: () -> Unit = {},
     onNavigateToDishUpload: () -> Unit = {},
-    onNavigateToSavedPosts: () -> Unit = {}
+    onNavigateToSavedPosts: () -> Unit = {},
+    onNavigateToFamilyHome: () -> Unit = {},
+    onNavigateToNotifications: () -> Unit = {}
 ) {
     val scrollState = rememberScrollState()
     val favoriteRepository = remember { FavoriteRepository() }
@@ -150,6 +154,25 @@ fun ProfileScreen(
             ProfileSectionHeader(
                 title = "Công cụ",
                 subtitle = "Các thao tác quản lý nội dung"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ProfileMenuItem(
+                icon = Icons.Default.Notifications,
+                title = "Thông báo",
+                subtitle = "Lời mời, lượt thích và cập nhật mới",
+                onClick = onNavigateToNotifications
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Entry point đến Family Home.
+            ProfileMenuItem(
+                icon = Icons.Default.People,
+                title = "Gia đình",
+                subtitle = "Quản lý nhóm gia đình",
+                onClick = onNavigateToFamilyHome
             )
 
             Spacer(modifier = Modifier.height(12.dp))

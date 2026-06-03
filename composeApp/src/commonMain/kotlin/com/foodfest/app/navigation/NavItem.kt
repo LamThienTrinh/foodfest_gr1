@@ -5,9 +5,10 @@ import foodfest.composeapp.generated.resources.blindbox
 import foodfest.composeapp.generated.resources.home
 import foodfest.composeapp.generated.resources.mon_an
 import foodfest.composeapp.generated.resources.profile
+import foodfest.composeapp.generated.resources.default_avatar
 import org.jetbrains.compose.resources.DrawableResource
 
-enum class MainTab { Home, Dish, BlindBox, Profile }
+enum class MainTab { Home, Dish, BlindBox, Family, Profile }
 
 data class NavItem(
     val tab: MainTab,
@@ -19,5 +20,6 @@ val mainNavItems = listOf(
     NavItem(MainTab.Home, "Trang chủ", Res.drawable.home),
     NavItem(MainTab.Dish, "Món ăn", Res.drawable.mon_an),
     NavItem(MainTab.BlindBox, "BlindBox", Res.drawable.blindbox),
+    NavItem(MainTab.Family, "Gia đình", Res.drawable.default_avatar),
     NavItem(MainTab.Profile, "Hồ sơ", Res.drawable.profile)
 )

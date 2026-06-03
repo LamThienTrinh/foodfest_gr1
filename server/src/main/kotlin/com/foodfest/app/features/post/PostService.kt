@@ -2,6 +2,9 @@ package com.foodfest.app.features.post
 
 import com.foodfest.app.core.exception.AppException
 import kotlinx.serialization.Serializable
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
 
 // =============================================
 // RESPONSE DTOs
@@ -47,6 +50,8 @@ data class DeleteCommentResult(
 // =============================================
 class PostService(private val repository: PostRepository) {
 
+    private val allowedSearchTypes = setOf("post", "user")
+
     private suspend fun ensurePostExists(postId: Int) {
         if (!repository.existsPost(postId)) {
             throw AppException.NotFound("Không tìm thấy bài viết")
@@ -84,10 +89,25 @@ class PostService(private val repository: PostRepository) {
         page: Int, 
         currentUserId: Int?,
         search: String? = null,
-        postType: String? = null
+        postType: String? = null,
+        searchType: String = "post",
+        includeTrending: Boolean = false
     ): Result<PostListResponse> = runCatching {
+        val normalizedSearchType = searchType.trim().lowercase().ifBlank { "post" }
+        if (normalizedSearchType !in allowedSearchTypes) {
+            throw IllegalArgumentException("searchType phải là post hoặc user")
+        }
+
         val limit = 10
-        val (posts, total) = repository.getPosts(page, limit, currentUserId, search, postType)
+        val (posts, total) = repository.getPosts(
+            page = page,
+            limit = limit,
+            currentUserId = currentUserId,
+            search = search,
+            postType = postType,
+            searchType = normalizedSearchType,
+            includeTrending = includeTrending
+        )
         PostListResponse(
             data = posts,
             page = page,
@@ -132,10 +152,27 @@ class PostService(private val repository: PostRepository) {
     suspend fun getUserPosts(
         userId: Int,
         page: Int,
-        currentUserId: Int?
+        currentUserId: Int?,
+        startDate: String? = null,
+        endDate: String? = null
     ): Result<PostListResponse> = runCatching {
+        // Parse ISO date/datetime để lọc khoảng ngày.
+        val parsedStart = startDate?.takeIf { it.isNotBlank() }?.let { parseStartDate(it) }
+        val parsedEnd = endDate?.takeIf { it.isNotBlank() }?.let { parseEndDate(it) }
+
+        if (parsedStart != null && parsedEnd != null && parsedStart.isAfter(parsedEnd)) {
+            throw IllegalArgumentException("startDate phải nhỏ hơn hoặc bằng endDate")
+        }
+
         val limit = 10
-        val (posts, total) = repository.getUserPosts(userId, page, limit, currentUserId)
+        val (posts, total) = repository.getUserPosts(
+            userId = userId,
+            page = page,
+            limit = limit,
+            currentUserId = currentUserId,
+            startDate = parsedStart,
+            endDate = parsedEnd
+        )
         PostListResponse(
             data = posts,
             page = page,
@@ -165,6 +202,25 @@ class PostService(private val repository: PostRepository) {
             throw IllegalStateException("Không thể xóa bài viết. Bạn không phải chủ bài viết hoặc bài viết không tồn tại.")
         }
         true
+    }
+
+    suspend fun updatePost(userId: Int, postId: Int, request: UpdatePostRequest): Result<Post> = runCatching {
+        val hasAnyField = request.title != null || request.content != null || request.imageUrl != null
+        if (!hasAnyField) {
+            throw IllegalArgumentException("Cần ít nhất một trường để cập nhật")
+        }
+
+        val updated = repository.updatePost(
+            userId = userId,
+            postId = postId,
+            title = request.title,
+            content = request.content,
+            imageUrl = request.imageUrl
+        )
+
+        updated ?: throw IllegalStateException(
+            "Không thể cập nhật bài viết. Bạn không phải chủ bài viết hoặc bài viết không tồn tại."
+        )
     }
     
     // Comments
@@ -249,5 +305,27 @@ class PostService(private val repository: PostRepository) {
             parentCommentId = deleted.parentCommentId,
             deletedCount = deleted.deletedCount
         )
+    }
+
+    private fun parseStartDate(raw: String): LocalDateTime {
+        val value = raw.trim()
+        return runCatching { LocalDateTime.parse(value) }
+            .getOrElse {
+                runCatching { LocalDate.parse(value).atStartOfDay() }
+                    .getOrElse {
+                        throw IllegalArgumentException("startDate không đúng định dạng ISO")
+                    }
+            }
+    }
+
+    private fun parseEndDate(raw: String): LocalDateTime {
+        val value = raw.trim()
+        return runCatching { LocalDateTime.parse(value) }
+            .getOrElse {
+                runCatching { LocalDate.parse(value).atTime(LocalTime.MAX) }
+                    .getOrElse {
+                        throw IllegalArgumentException("endDate không đúng định dạng ISO")
+                    }
+            }
     }
 }

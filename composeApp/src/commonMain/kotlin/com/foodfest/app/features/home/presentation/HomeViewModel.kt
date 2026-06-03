@@ -86,7 +86,9 @@ class HomeViewModel {
                 postRepository.getPosts(
                     page = page,
                     search = state.searchQuery.takeIf { it.isNotBlank() },
-                    postType = state.selectedPostType
+                    postType = state.selectedPostType,
+                    searchType = state.searchType, // Gọi API với kiểu tìm kiếm (post/user)
+                    includeTrending = true // Yêu cầu backend áp dụng window function đẩy trending 7 ngày lên trước
                 )
             }
 
@@ -142,6 +144,11 @@ class HomeViewModel {
     
     fun updateSearchQuery(query: String) {
         state = state.copy(searchQuery = query)
+    }
+    
+    // Cập nhật chế độ tìm kiếm
+    fun updateSearchType(type: String) {
+        state = state.copy(searchType = type)
     }
     
     suspend fun searchPosts() {

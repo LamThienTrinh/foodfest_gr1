@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.*
@@ -40,6 +42,8 @@ fun PostCard(
     isFollowingAuthor: Boolean = false,
     isFollowLoading: Boolean = false,
     onFollowClick: () -> Unit = {},
+    onEditClick: (() -> Unit)? = null,
+    onDeleteClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -92,6 +96,22 @@ fun PostCard(
                         )
                         // Post type badge
                         PostTypeBadge(postType = post.postType)
+                        
+                        // Hiển thị Badge Xu hướng nếu bài viết đang được đánh dấu ưu tiên (trending)
+                        if (post.isTrending) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = AppColors.Orange.copy(alpha = 0.1f)
+                            ) {
+                                Text(
+                                    text = "🔥 Xu hướng",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = AppColors.Orange,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                     }
                     Text(
                         text = formatTimeAgo(post.createdAt),
@@ -121,13 +141,36 @@ fun PostCard(
                     }
                 }
                 
-                // Save button
-                IconButton(onClick = onSaveClick) {
-                    Icon(
-                        imageVector = if (post.isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                        contentDescription = "Lưu",
-                        tint = if (post.isSaved) AppColors.Orange else AppColors.GrayPlaceholder
-                    )
+                // Action buttons for MyPosts scenario
+                if (onEditClick != null) {
+                    IconButton(onClick = onEditClick) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Sửa",
+                            tint = AppColors.Orange
+                        )
+                    }
+                }
+                
+                if (onDeleteClick != null) {
+                    IconButton(onClick = onDeleteClick) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Xoá",
+                            tint = Color.Red
+                        )
+                    }
+                }
+
+                // Save button (Chỉ hiển thị khi không phải màn hình MyPosts hoặc nếu có yêu cầu)
+                if (onEditClick == null && onDeleteClick == null) {
+                    IconButton(onClick = onSaveClick) {
+                        Icon(
+                            imageVector = if (post.isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                            contentDescription = "Lưu",
+                            tint = if (post.isSaved) AppColors.Orange else AppColors.GrayPlaceholder
+                        )
+                    }
                 }
             }
             

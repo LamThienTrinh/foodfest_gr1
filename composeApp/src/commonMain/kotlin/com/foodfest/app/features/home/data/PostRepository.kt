@@ -53,7 +53,11 @@ class PostRepository {
         page: Int,
         limit: Int,
         search: String?,
-        postType: String?
+        postType: String?,
+        searchType: String? = null,
+        includeTrending: Boolean? = null,
+        startDate: String? = null,
+        endDate: String? = null
     ): Result<PostListResponse> {
         return try {
             val response = client.get("$baseUrl$endpoint") {
@@ -64,6 +68,18 @@ class PostRepository {
                 }
                 if (!postType.isNullOrBlank()) {
                     parameter("postType", postType)
+                }
+                if (!searchType.isNullOrBlank()) {
+                    parameter("searchType", searchType)
+                }
+                if (includeTrending != null) {
+                    parameter("includeTrending", includeTrending)
+                }
+                if (!startDate.isNullOrBlank()) {
+                    parameter("startDate", startDate)
+                }
+                if (!endDate.isNullOrBlank()) {
+                    parameter("endDate", endDate)
                 }
                 getAuthHeaders().forEach { (key, value) ->
                     header(key, value)
@@ -94,14 +110,18 @@ class PostRepository {
         page: Int = 1, 
         limit: Int = 10,
         search: String? = null,
-        postType: String? = null
+        postType: String? = null,
+        searchType: String = "post",
+        includeTrending: Boolean = false
     ): Result<PostListResponse> {
         return requestPostList(
             endpoint = "/api/posts",
             page = page,
             limit = limit,
             search = search,
-            postType = postType
+            postType = postType,
+            searchType = searchType,
+            includeTrending = includeTrending
         )
     }
 
@@ -116,21 +136,29 @@ class PostRepository {
             page = page,
             limit = limit,
             search = search,
-            postType = postType
+            postType = postType,
+            searchType = null,
+            includeTrending = null
         )
     }
 
     suspend fun getUserPosts(
         userId: Int,
         page: Int = 1,
-        limit: Int = 10
+        limit: Int = 10,
+        startDate: String? = null,
+        endDate: String? = null
     ): Result<PostListResponse> {
         return requestPostList(
             endpoint = "/api/users/$userId/posts",
             page = page,
             limit = limit,
             search = null,
-            postType = null
+            postType = null,
+            searchType = null,
+            includeTrending = null,
+            startDate = startDate,
+            endDate = endDate
         )
     }
 
@@ -168,6 +196,46 @@ class PostRepository {
                 Result.success(apiResponse.data)
             } else {
                 Result.failure(Exception(apiResponse.message ?: "Failed to create post"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun updatePost(postId: Int, request: UpdatePostRequest): Result<Post> {
+        return try {
+            val response = client.put("$baseUrl/api/posts/$postId") {
+                contentType(ContentType.Application.Json)
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+                setBody(request)
+            }
+
+            val apiResponse = response.body<ApiResponse<Post>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to update post"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deletePost(postId: Int): Result<DeletePostData> {
+        return try {
+            val response = client.delete("$baseUrl/api/posts/$postId") {
+                getAuthHeaders().forEach { (key, value) ->
+                    header(key, value)
+                }
+            }
+
+            val apiResponse = response.body<ApiResponse<DeletePostData>>()
+            if (apiResponse.success && apiResponse.data != null) {
+                Result.success(apiResponse.data)
+            } else {
+                Result.failure(Exception(apiResponse.message ?: "Failed to delete post"))
             }
         } catch (e: Exception) {
             Result.failure(e)

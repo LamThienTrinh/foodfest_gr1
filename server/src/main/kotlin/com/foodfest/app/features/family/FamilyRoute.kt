@@ -127,6 +127,25 @@ fun Route.familyRoutes(familyService: FamilyService) {
                     }
             }
 
+            put("/{familyId}/members/me/nickname") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@put call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val request = runCatching { call.receive<UpdateFamilyMemberNicknameRequest>() }.getOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.updateMyFamilyNickname(principal.userId, familyId, request)
+                    .onSuccess { member ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(member, "Nickname updated"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to update nickname"))
+                    }
+            }
+
             delete("/{familyId}/leave") {
                 val principal = call.principal<JWTPrincipal>()
                     ?: return@delete call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
@@ -140,6 +159,387 @@ fun Route.familyRoutes(familyService: FamilyService) {
                     }
                     .onFailure { error ->
                         call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to leave family"))
+                    }
+            }
+
+            post("/{familyId}/invites") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val request = runCatching { call.receive<CreateFamilyInviteRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.createFamilyInvite(principal.userId, familyId, request)
+                    .onSuccess { invite ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(invite, "Invite created"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to create invite"))
+                    }
+            }
+
+            get("/invites") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                familyService.listMyInvites(principal.userId)
+                    .onSuccess { invites ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(invites))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to list invites"))
+                    }
+            }
+
+            post("/invites/{inviteId}/respond") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val inviteId = call.parameters["inviteId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid invite id"))
+
+                val request = runCatching { call.receive<RespondFamilyInviteRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.respondToInvite(principal.userId, inviteId, request)
+                    .onSuccess { invite ->
+                        val message = if (request.accept) "Invite accepted" else "Invite declined"
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(invite, message))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to respond to invite"))
+                    }
+            }
+
+            get("/{familyId}/saved-meals") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                familyService.listFamilySavedMeals(principal.userId, familyId)
+                    .onSuccess { savedMeals ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(savedMeals))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to list saved meals"))
+                    }
+            }
+
+            post("/{familyId}/saved-meals/from-menu/{menuId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val menuId = call.parameters["menuId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid menu id"))
+
+                val request = runCatching { call.receive<CreateFamilySavedMealRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.createSavedMealFromMenu(principal.userId, familyId, menuId, request)
+                    .onSuccess { savedMeal ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(savedMeal, "Saved meal created"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to create saved meal"))
+                    }
+            }
+
+            get("/{familyId}/saved-meals/{savedMealId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val savedMealId = call.parameters["savedMealId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid saved meal id"))
+
+                familyService.getFamilySavedMealDetail(principal.userId, familyId, savedMealId)
+                    .onSuccess { savedMeal ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(savedMeal))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get saved meal"))
+                    }
+            }
+
+            post("/{familyId}/saved-meals/{savedMealId}/apply/{menuId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val savedMealId = call.parameters["savedMealId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid saved meal id"))
+
+                val menuId = call.parameters["menuId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid menu id"))
+
+                familyService.applySavedMealToMenu(principal.userId, familyId, savedMealId, menuId)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result, "Saved meal applied"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to apply saved meal"))
+                    }
+            }
+
+            delete("/{familyId}/saved-meals/{savedMealId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@delete call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val savedMealId = call.parameters["savedMealId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid saved meal id"))
+
+                familyService.deleteSavedMeal(principal.userId, familyId, savedMealId)
+                    .onSuccess {
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(FamilyMessageData("Saved meal deleted")))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to delete saved meal"))
+                    }
+            }
+
+            get("/{familyId}/pantry") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                familyService.listFamilyPantryItems(principal.userId, familyId)
+                    .onSuccess { items ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(items))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to list pantry items"))
+                    }
+            }
+
+            post("/{familyId}/pantry") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val request = runCatching { call.receive<CreateFamilyPantryItemRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.createFamilyPantryItem(principal.userId, familyId, request)
+                    .onSuccess { item ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(item, "Pantry item created"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to create pantry item"))
+                    }
+            }
+
+            put("/{familyId}/pantry/{itemId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@put call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val itemId = call.parameters["itemId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid pantry item id"))
+
+                val request = runCatching { call.receive<UpdateFamilyPantryItemRequest>() }.getOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.updateFamilyPantryItem(principal.userId, familyId, itemId, request)
+                    .onSuccess { item ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(item, "Pantry item updated"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to update pantry item"))
+                    }
+            }
+
+            delete("/{familyId}/pantry/{itemId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@delete call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val itemId = call.parameters["itemId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid pantry item id"))
+
+                familyService.deleteFamilyPantryItem(principal.userId, familyId, itemId)
+                    .onSuccess {
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(FamilyMessageData("Pantry item deleted")))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to delete pantry item"))
+                    }
+            }
+
+            delete("/{familyId}/pantry/expired") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@delete call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@delete call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                familyService.deleteExpiredFamilyPantryItems(principal.userId, familyId)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result, "Expired pantry items deleted"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to delete expired pantry items"))
+                    }
+            }
+
+            get("/{familyId}/notes") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                familyService.listFamilyNotes(principal.userId, familyId, limit = null)
+                    .onSuccess { notes ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(notes))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to list family notes"))
+                    }
+            }
+
+            post("/{familyId}/notes") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val request = runCatching { call.receive<CreateFamilyNoteRequest>() }.getOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.createFamilyNote(principal.userId, familyId, request)
+                    .onSuccess { note ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(note, "Family note created"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to create family note"))
+                    }
+            }
+
+            post("/{familyId}/shopping-lists/generate") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val request = runCatching { call.receive<GenerateFamilyShoppingListRequest>() }
+                    .getOrElse { GenerateFamilyShoppingListRequest(call.request.queryParameters["weekStart"]) }
+
+                familyService.generateFamilyShoppingList(principal.userId, familyId, request)
+                    .onSuccess { detail ->
+                        call.respond(HttpStatusCode.Created, ApiResponse.success(detail, "Shopping list generated"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to generate shopping list"))
+                    }
+            }
+
+            get("/{familyId}/shopping-lists/{shoppingListId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val shoppingListId = call.parameters["shoppingListId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid shopping list id"))
+
+                familyService.getFamilyShoppingListDetail(principal.userId, familyId, shoppingListId)
+                    .onSuccess { detail ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(detail))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get shopping list"))
+                    }
+            }
+
+            put("/{familyId}/shopping-lists/{shoppingListId}/items/{itemId}") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@put call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val shoppingListId = call.parameters["shoppingListId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid shopping list id"))
+
+                val itemId = call.parameters["itemId"]?.toIntOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid shopping list item id"))
+
+                val request = runCatching { call.receive<UpdateFamilyShoppingListItemRequest>() }.getOrNull()
+                    ?: return@put call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid request body"))
+
+                familyService.updateFamilyShoppingListItem(principal.userId, familyId, shoppingListId, itemId, request)
+                    .onSuccess { detail ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(detail, "Shopping item updated"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to update shopping item"))
+                    }
+            }
+
+            post("/{familyId}/shopping-lists/{shoppingListId}/mark-all-purchased") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val shoppingListId = call.parameters["shoppingListId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid shopping list id"))
+
+                familyService.markAllFamilyShoppingItemsPurchased(principal.userId, familyId, shoppingListId)
+                    .onSuccess { detail ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(detail, "All items purchased"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to mark all purchased"))
+                    }
+            }
+
+            post("/{familyId}/shopping-lists/{shoppingListId}/sync-pantry") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@post call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val shoppingListId = call.parameters["shoppingListId"]?.toIntOrNull()
+                    ?: return@post call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid shopping list id"))
+
+                val request = runCatching { call.receive<SyncShoppingListPantryRequest>() }
+                    .getOrElse { SyncShoppingListPantryRequest() }
+
+                familyService.syncFamilyShoppingListToPantry(principal.userId, familyId, shoppingListId, request)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result, "Pantry updated"))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to sync pantry"))
                     }
             }
 
@@ -177,6 +577,42 @@ fun Route.familyRoutes(familyService: FamilyService) {
                     }
                     .onFailure { error ->
                         call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get weekly menus"))
+                    }
+            }
+
+            get("/{familyId}/menus/recent") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()
+
+                familyService.listRecentMenuItems(principal.userId, familyId, limit)
+                    .onSuccess { items ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(items))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get recent menu items"))
+                    }
+            }
+
+            get("/{familyId}/votes/recent") {
+                val principal = call.principal<JWTPrincipal>()
+                    ?: return@get call.respond(HttpStatusCode.Unauthorized, ApiResponse.error<Unit>("Unauthorized"))
+
+                val familyId = call.parameters["familyId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid family id"))
+
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()
+
+                familyService.listRecentVotes(principal.userId, familyId, limit)
+                    .onSuccess { votes ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(votes))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get recent votes"))
                     }
             }
 

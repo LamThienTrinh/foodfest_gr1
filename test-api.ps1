@@ -487,6 +487,15 @@ try {
   $itemInWeek = @($menuInWeek[0].items | Where-Object { [int]$_.id -eq $familyMenuItemId })
   Assert-True ($itemInWeek.Count -eq 1) "Weekly menu items should include created item"
 
+  # Recent menu items for picker
+  Write-Step "Family: recent menu items should include created dish"
+  $recentItems = Invoke-Json GET "$BaseUrl/api/families/$familyId/menus/recent?limit=5" $token
+  Assert-True ($recentItems.success -eq $true) "GET /api/families/{familyId}/menus/recent should succeed"
+  $recentRows = @($recentItems.data)
+  Assert-True ($recentRows.Count -le 5) "Recent menu items should respect limit"
+  $recentMatch = @($recentRows | Where-Object { [int]$_.dishId -eq $dishId })
+  Assert-True ($recentMatch.Count -ge 1) "Recent menu items should include created dish"
+
   Write-Step "Family Vote: member vote up"
   $memberVoteUp = Invoke-Json POST "$BaseUrl/api/families/$familyId/menus/$familyMenuId/items/$familyMenuItemId/vote" $familyMemberToken @{ voteType = "up" }
   Assert-True ($memberVoteUp.success -eq $true) "Member vote up should succeed"
@@ -545,6 +554,88 @@ try {
   Write-Step "Family: owner leave should be rejected"
   $ownerLeaveRaw = Invoke-Raw DELETE "$BaseUrl/api/families/$familyId/leave" $token
   Assert-True ($ownerLeaveRaw.StatusCode -eq 409) "Owner leave family should return 409"
+
+  # -----------------------
+  # PHASE C: SEARCH, TRENDING, MY-POSTS
+  # -----------------------
+  Write-Step "Phase C: Create post for CRUD testing"
+  $crudPostBody = @{
+    postType = "review"
+    title = "Test CRUD Title"
+    content = "Test CRUD Content"
+  }
+  $crudPost = Invoke-Json POST "$BaseUrl/api/posts" $token $crudPostBody
+  Assert-True ($crudPost.success -eq $true) "Create post should succeed"
+  $crudPostId = [int]$crudPost.data.id
+
+  Write-Step "Phase C: Update Post as Owner"
+  $updatePostBody = @{
+    title = "Updated Title"
+    content = "Updated Content"
+  }
+  $updatedPost = Invoke-Json PUT "$BaseUrl/api/posts/$crudPostId" $token $updatePostBody
+  Assert-True ($updatedPost.success -eq $true) "Owner update post should succeed"
+  Assert-True ($updatedPost.data.title -eq "Updated Title") "Title should be updated"
+
+  Write-Step "Phase C: Update Post as Non-Owner (Should fail)"
+  $unauthUpdate = Invoke-Raw PUT "$BaseUrl/api/posts/$crudPostId" $profileUserToken $updatePostBody
+  Assert-True ($unauthUpdate.StatusCode -eq 403) "Non-owner update should return 403"
+
+  Write-Step "Phase C: My-Post Date Range Filter"
+  $startDate = (Get-Date).AddDays(-1).ToString("yyyy-MM-dd")
+  $endDate = (Get-Date).AddDays(1).ToString("yyyy-MM-dd")
+  $myUserId = [int]$login.data.user.id
+  $myPostsDate = Invoke-Json GET "$BaseUrl/api/users/$myUserId/posts?startDate=$startDate&endDate=$endDate" $token
+  Assert-True ($myPostsDate.success -eq $true) "Date range filter should succeed"
+  $hasCrudPost = @($myPostsDate.data.data | Where-Object { [int]$_.id -eq $crudPostId })
+  Assert-True ($hasCrudPost.Count -gt 0) "Date range filter should include recently created post"
+
+  Write-Step "Phase C: My-Post Date Range invalid format"
+  $invalidDateRange = Invoke-Raw GET "$BaseUrl/api/users/$myUserId/posts?startDate=not-a-date&endDate=$endDate" $token
+  Assert-True ($invalidDateRange.StatusCode -eq 400) "Invalid startDate format should return 400"
+
+  Write-Step "Phase C: SearchType=post"
+  $searchPost = Invoke-Json GET "$BaseUrl/api/posts?searchType=post&search=Updated" $token
+  Assert-True ($searchPost.success -eq $true) "Search by post should succeed"
+  $foundPost = @($searchPost.data.data | Where-Object { [int]$_.id -eq $crudPostId })
+  Assert-True ($foundPost.Count -gt 0) "Search by post should find updated title"
+
+  Write-Step "Phase C: SearchType=user"
+  $searchUser = Invoke-Json GET "$BaseUrl/api/posts?searchType=user&search=$Username" $token
+  Assert-True ($searchUser.success -eq $true) "Search by user should succeed"
+  $foundUserPost = @($searchUser.data.data | Where-Object { [int]$_.id -eq $crudPostId })
+  Assert-True ($foundUserPost.Count -gt 0) "Search by user should include post authored by matched username"
+
+  Write-Step "Phase C: Trending Order (includeTrending=true)"
+  $trendingAll = Invoke-Json GET "$BaseUrl/api/posts?includeTrending=true" $token
+  Assert-True ($trendingAll.success -eq $true) "Get trending posts should succeed"
+  Assert-True ($trendingAll.data.data -ne $null) "Trending result should not be null"
+  $trendingRows = @($trendingAll.data.data)
+  $firstNonTrendingIndex = -1
+  $firstTrendingAfterNonTrending = -1
+  for ($i = 0; $i -lt $trendingRows.Count; $i++) {
+    if (-not $trendingRows[$i].isTrending) {
+      $firstNonTrendingIndex = $i
+      break
+    }
+  }
+  if ($firstNonTrendingIndex -ge 0) {
+    for ($j = $firstNonTrendingIndex + 1; $j -lt $trendingRows.Count; $j++) {
+      if ($trendingRows[$j].isTrending) {
+        $firstTrendingAfterNonTrending = $j
+        break
+      }
+    }
+  }
+  Assert-True ($firstTrendingAfterNonTrending -eq -1) "Trending posts should not appear after first non-trending post"
+
+  Write-Step "Phase C: Delete Post as Non-Owner (Should fail)"
+  $unauthDelete = Invoke-Raw DELETE "$BaseUrl/api/posts/$crudPostId" $profileUserToken
+  Assert-True ($unauthDelete.StatusCode -eq 403) "Non-owner delete should return 403"
+
+  Write-Step "Phase C: Delete Post as Owner"
+  $deleteCrudPost = Invoke-Json DELETE "$BaseUrl/api/posts/$crudPostId" $token
+  Assert-True ($deleteCrudPost.success -eq $true) "Owner delete post should succeed"
 
   Write-Host "`n========================================" -ForegroundColor Green
   Write-Host "ALL TESTS PASSED" -ForegroundColor Green

@@ -112,6 +112,20 @@ pod install
 # Mở .xcworkspace trong Xcode
 ```
 
+### 5. Dọn Ảnh Cloudinary Mồ Côi
+```bash
+# Dry-run (không xóa, chỉ liệt kê ảnh mồ côi)
+./cleanup-cloudinary-orphans.ps1
+
+# Xóa thật ảnh mồ côi
+./cleanup-cloudinary-orphans.ps1 -Apply
+
+# Hoặc truyền credentials trực tiếp nếu chưa có ENV/.env
+./cleanup-cloudinary-orphans.ps1 -CloudName "<cloud>" -ApiKey "<key>" -ApiSecret "<secret>"
+```
+
+Script sẽ so sánh ảnh trên Cloudinary với các URL ảnh đang dùng trong DB (`users.avatar_url`, `posts.image_url`, `dishes.image_url`, `personal_dishes.image_url`) và chỉ xóa các ảnh không còn được tham chiếu.
+
 ---
 
 ## 🔌 API Endpoints

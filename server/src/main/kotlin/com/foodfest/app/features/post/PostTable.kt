@@ -1,15 +1,26 @@
 package com.foodfest.app.features.post
 
+import com.foodfest.app.core.exception.AppException
 import com.foodfest.app.features.auth.AuthTable
 import com.foodfest.app.features.follow.FollowTable
+import com.foodfest.app.features.notification.NotificationRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.dao.id.IntIdTable
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.IColumnType
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
+import org.jetbrains.exposed.sql.statements.StatementType
 import org.jetbrains.exposed.sql.javatime.CurrentTimestamp
+import org.jetbrains.exposed.sql.javatime.JavaInstantColumnType
 import org.jetbrains.exposed.sql.javatime.timestamp
 import org.jetbrains.exposed.sql.transactions.experimental.newSuspendedTransaction
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 
 // =============================================
 // TABLE DEFINITIONS
@@ -68,6 +79,9 @@ data class Post(
     val commentCount: Int = 0,
     val isLiked: Boolean = false,
     val isSaved: Boolean = false,
+    val trendScore: Int? = null,
+    val trendRank: Int? = null,
+    val isTrending: Boolean = false,
     val createdAt: String
 )
 
@@ -88,6 +102,13 @@ data class Comment(
 @Serializable
 data class CreatePostRequest(
     val postType: String,
+    val title: String? = null,
+    val content: String? = null,
+    val imageUrl: String? = null
+)
+
+@Serializable
+data class UpdatePostRequest(
     val title: String? = null,
     val content: String? = null,
     val imageUrl: String? = null
@@ -119,6 +140,18 @@ data class CommentDeleteSummary(
 // REPOSITORY
 // =============================================
 class PostRepository {
+
+    private data class FeedWhereSql(
+        val clause: String,
+        val args: List<Pair<IColumnType, Any?>>
+    )
+
+    private data class RankedFeedPost(
+        val postId: Int,
+        val trendScore: Int,
+        val trendRank: Int?,
+        val isTrending: Boolean
+    )
 
     suspend fun existsPost(postId: Int): Boolean = newSuspendedTransaction(Dispatchers.IO) {
         PostTable.select { PostTable.id eq postId }.count() > 0
@@ -172,33 +205,65 @@ class PostRepository {
         limit: Int,
         currentUserId: Int? = null,
         search: String? = null,
-        postType: String? = null
+        postType: String? = null,
+        searchType: String = "post",
+        includeTrending: Boolean = false
     ): Pair<List<Post>, Int> = newSuspendedTransaction(Dispatchers.IO) {
+        val normalizedSearchType = searchType.trim().lowercase()
+        if (includeTrending) {
+            return@newSuspendedTransaction getPostsWithTrendingRanking(
+                page = page,
+                limit = limit,
+                currentUserId = currentUserId,
+                search = search,
+                postType = postType,
+                searchType = normalizedSearchType
+            )
+        }
+
         val offset = ((page - 1).coerceAtLeast(0)) * limit
-        
-        // Build WHERE conditions
+        val postWithAuthor = PostTable.innerJoin(AuthTable)
+
+        // Điều kiện lọc feed.
         val conditions = mutableListOf<Op<Boolean>>()
-        
+
         if (!search.isNullOrBlank()) {
             val pattern = LikePattern("%${search.lowercase()}%")
-            conditions.add(LikeOp(PostTable.title.lowerCase(), stringParam(pattern.pattern)))
+
+            if (normalizedSearchType == "user") {
+                conditions.add(
+                    Op.build {
+                        (AuthTable.username.lowerCase() like pattern.pattern) or
+                            (AuthTable.fullName.lowerCase() like pattern.pattern)
+                    }
+                )
+            } else {
+                conditions.add(
+                    Op.build {
+                        (PostTable.title.lowerCase() like pattern.pattern) or
+                            (PostTable.content.lowerCase() like pattern.pattern)
+                    }
+                )
+            }
         }
-        
+
         if (!postType.isNullOrBlank()) {
             conditions.add(PostTable.postType eq postType)
         }
-        
+
         val whereCondition = if (conditions.isEmpty()) {
             Op.TRUE
         } else {
             conditions.reduce { acc, op -> acc and op }
         }
-        
-        val total = PostTable.select { whereCondition }.count().toInt()
-        
-        val posts = (PostTable innerJoin AuthTable)
+
+        val total = postWithAuthor.select { whereCondition }.count().toInt()
+
+        val orderedQuery = postWithAuthor
             .select { whereCondition }
             .orderBy(PostTable.createdAt to SortOrder.DESC)
+
+        val posts = orderedQuery
             .limit(limit, offset.toLong())
             .map { row ->
                 val postId = row[PostTable.id].value
@@ -221,6 +286,168 @@ class PostRepository {
         posts to total
     }
 
+    private fun Transaction.getPostsWithTrendingRanking(
+        page: Int,
+        limit: Int,
+        currentUserId: Int?,
+        search: String?,
+        postType: String?,
+        searchType: String
+    ): Pair<List<Post>, Int> {
+        val offset = ((page - 1).coerceAtLeast(0)) * limit
+        val whereSql = buildFeedWhereSql(search = search, postType = postType, searchType = searchType)
+
+        val countSql = """
+            SELECT COUNT(*) AS total
+            FROM posts p
+            INNER JOIN users u ON p.user_id = u.user_id
+            ${whereSql.clause}
+        """.trimIndent()
+
+        val total = exec(countSql, whereSql.args, StatementType.SELECT) { rs ->
+            if (rs.next()) rs.getInt("total") else 0
+        } ?: 0
+
+        if (total == 0) {
+            return emptyList<Post>() to 0
+        }
+
+        val cutoff = Instant.now().minus(7, ChronoUnit.DAYS)
+        val rankingSql = """
+            WITH base AS (
+                SELECT
+                    p.post_id,
+                    p.created_at,
+                    p.like_count,
+                    p.comment_count
+                FROM posts p
+                INNER JOIN users u ON p.user_id = u.user_id
+                ${whereSql.clause}
+            ),
+            trend AS (
+                SELECT
+                    b.post_id,
+                    (b.like_count + b.comment_count * 2) AS trend_score,
+                    DENSE_RANK() OVER (
+                        ORDER BY
+                            (b.like_count + b.comment_count * 2) DESC,
+                            b.created_at DESC,
+                            b.post_id DESC
+                    ) AS trend_rank
+                FROM base b
+                WHERE b.created_at >= ?
+            )
+            SELECT
+                b.post_id,
+                (b.like_count + b.comment_count * 2) AS trend_score,
+                t.trend_rank,
+                (t.trend_rank IS NOT NULL) AS is_trending
+            FROM base b
+            LEFT JOIN trend t ON t.post_id = b.post_id
+            ORDER BY
+                CASE WHEN t.trend_rank IS NULL THEN 1 ELSE 0 END ASC,
+                t.trend_rank ASC NULLS LAST,
+                b.created_at DESC,
+                b.post_id DESC
+            LIMIT ? OFFSET ?
+        """.trimIndent()
+
+        val rankingArgs = whereSql.args.toMutableList()
+        rankingArgs.add(JavaInstantColumnType() to cutoff)
+        rankingArgs.add(IntegerColumnType() to limit)
+        rankingArgs.add(IntegerColumnType() to offset)
+
+        val rankedPosts = exec(rankingSql, rankingArgs, StatementType.SELECT) { rs ->
+            buildList {
+                while (rs.next()) {
+                    val rankValue = rs.getObject("trend_rank") as? Number
+                    add(
+                        RankedFeedPost(
+                            postId = rs.getInt("post_id"),
+                            trendScore = rs.getInt("trend_score"),
+                            trendRank = rankValue?.toInt(),
+                            isTrending = rs.getBoolean("is_trending")
+                        )
+                    )
+                }
+            }
+        } ?: emptyList()
+
+        if (rankedPosts.isEmpty()) {
+            return emptyList<Post>() to total
+        }
+
+        val orderedPostIds = rankedPosts.map { it.postId }
+        val rankByPostId = rankedPosts.associateBy { it.postId }
+
+        val rowsByPostId = (PostTable innerJoin AuthTable)
+            .select { PostTable.id inList orderedPostIds }
+            .associateBy { it[PostTable.id].value }
+
+        val posts = orderedPostIds.mapNotNull { postId ->
+            val row = rowsByPostId[postId] ?: return@mapNotNull null
+            val rankMeta = rankByPostId[postId] ?: return@mapNotNull null
+
+            val isLiked = currentUserId?.let { uid ->
+                PostLikeTable.select {
+                    (PostLikeTable.postId eq postId) and (PostLikeTable.userId eq uid)
+                }.count() > 0
+            } ?: false
+
+            val isSaved = currentUserId?.let { uid ->
+                SavedPostTable.select {
+                    (SavedPostTable.postId eq postId) and (SavedPostTable.userId eq uid)
+                }.count() > 0
+            } ?: false
+
+            rowToPost(
+                row = row,
+                isLiked = isLiked,
+                isSaved = isSaved,
+                trendScore = rankMeta.trendScore,
+                trendRank = rankMeta.trendRank,
+                isTrending = rankMeta.isTrending
+            )
+        }
+
+        return posts to total
+    }
+
+    private fun buildFeedWhereSql(
+        search: String?,
+        postType: String?,
+        searchType: String
+    ): FeedWhereSql {
+        val conditions = mutableListOf<String>()
+        val args = mutableListOf<Pair<IColumnType, Any?>>()
+
+        val normalizedSearch = search?.trim()?.lowercase()
+        if (!normalizedSearch.isNullOrBlank()) {
+            val pattern = "%$normalizedSearch%"
+            if (searchType == "user") {
+                conditions += "(LOWER(u.username) LIKE ? OR LOWER(u.full_name) LIKE ?)"
+            } else {
+                conditions += "(LOWER(COALESCE(p.title, '')) LIKE ? OR LOWER(COALESCE(p.content, '')) LIKE ?)"
+            }
+            args.add(TextColumnType() to pattern)
+            args.add(TextColumnType() to pattern)
+        }
+
+        val normalizedPostType = postType?.trim()?.takeIf { it.isNotBlank() }
+        if (normalizedPostType != null) {
+            conditions += "p.post_type = ?"
+            args.add(TextColumnType() to normalizedPostType)
+        }
+
+        val clause = if (conditions.isEmpty()) {
+            ""
+        } else {
+            "WHERE ${conditions.joinToString(" AND ")}"
+        }
+
+        return FeedWhereSql(clause = clause, args = args)
+    }
+
             suspend fun getFollowingFeed(
                 followerUserId: Int,
                 page: Int,
@@ -235,7 +462,12 @@ class PostRepository {
 
                 if (!search.isNullOrBlank()) {
                     val pattern = LikePattern("%${search.lowercase()}%")
-                    conditions.add(LikeOp(PostTable.title.lowerCase(), stringParam(pattern.pattern)))
+                    conditions.add(
+                        Op.build {
+                            (PostTable.title.lowerCase() like pattern.pattern) or
+                                (PostTable.content.lowerCase() like pattern.pattern)
+                        }
+                    )
                 }
 
                 if (!postType.isNullOrBlank()) {
@@ -275,14 +507,30 @@ class PostRepository {
         userId: Int,
         page: Int,
         limit: Int,
-        currentUserId: Int? = null
+        currentUserId: Int? = null,
+        startDate: LocalDateTime? = null,
+        endDate: LocalDateTime? = null
     ): Pair<List<Post>, Int> = newSuspendedTransaction(Dispatchers.IO) {
         val offset = ((page - 1).coerceAtLeast(0)) * limit
-        
-        val total = PostTable.select { PostTable.userId eq userId }.count().toInt()
-        
+
+        // Lọc bài theo chủ sở hữu và khoảng ngày.
+        val conditions = mutableListOf<Op<Boolean>>()
+        conditions.add(PostTable.userId eq userId)
+        startDate?.let { start ->
+            val startInstant = start.atZone(ZoneOffset.UTC).toInstant()
+            conditions.add(Op.build { PostTable.createdAt greaterEq startInstant })
+        }
+        endDate?.let { end ->
+            val endInstant = end.atZone(ZoneOffset.UTC).toInstant()
+            conditions.add(Op.build { PostTable.createdAt lessEq endInstant })
+        }
+
+        val whereCondition = conditions.reduce { acc, op -> acc and op }
+
+        val total = PostTable.select { whereCondition }.count().toInt()
+
         val posts = (PostTable innerJoin AuthTable)
-            .select { PostTable.userId eq userId }
+            .select { whereCondition }
             .orderBy(PostTable.createdAt to SortOrder.DESC)
             .limit(limit, offset.toLong())
             .map { row ->
@@ -362,6 +610,24 @@ class PostRepository {
                     it.update(likeCount, likeCount + 1)
                 }
             }
+            val postRow = PostTable.select { PostTable.id eq postId }.singleOrNull()
+            val ownerUserId = postRow?.get(PostTable.userId)?.value
+            if (ownerUserId != null && ownerUserId != userId) {
+                val likerName = AuthTable.select { AuthTable.id eq userId }
+                    .singleOrNull()
+                    ?.let { row -> row[AuthTable.fullName].trim().ifBlank { row[AuthTable.username] } }
+                    ?: "Một người dùng"
+                val postTitle = postRow[PostTable.title]?.takeIf { it.isNotBlank() } ?: "bài viết của bạn"
+                NotificationRepository.insertEventNotification(
+                    userId = ownerUserId,
+                    type = "post_like",
+                    title = "Có lượt thích mới",
+                    message = "$likerName đã thích $postTitle",
+                    relatedEntityType = "post",
+                    relatedEntityId = postId,
+                    actionUrl = "foodfest://posts/$postId"
+                )
+            }
             true
         }
     }
@@ -388,9 +654,58 @@ class PostRepository {
     }
     
     suspend fun deletePost(userId: Int, postId: Int): Boolean = newSuspendedTransaction(Dispatchers.IO) {
-        PostTable.deleteWhere { 
-            (PostTable.id eq postId) and (PostTable.userId eq userId) 
+        val currentRow = PostTable.select { PostTable.id eq postId }.singleOrNull()
+            ?: throw AppException.NotFound("Không tìm thấy bài viết")
+
+        if (currentRow[PostTable.userId].value != userId) {
+            throw AppException.Forbidden("Bạn không có quyền xóa bài viết này")
+        }
+
+        PostTable.deleteWhere {
+            (PostTable.id eq postId) and (PostTable.userId eq userId)
         } > 0
+    }
+
+    suspend fun updatePost(
+        userId: Int,
+        postId: Int,
+        title: String?,
+        content: String?,
+        imageUrl: String?
+    ): Post? = newSuspendedTransaction(Dispatchers.IO) {
+        val currentRow = PostTable.select { PostTable.id eq postId }.singleOrNull()
+            ?: throw AppException.NotFound("Không tìm thấy bài viết")
+
+        if (currentRow[PostTable.userId].value != userId) {
+            throw AppException.Forbidden("Bạn không có quyền cập nhật bài viết này")
+        }
+
+        // Null = giữ nguyên, rỗng = xóa giá trị.
+        val hasTitleUpdate = title != null
+        val hasContentUpdate = content != null
+        val hasImageUpdate = imageUrl != null
+
+        val normalizedTitle = title?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedContent = content?.trim()?.takeIf { it.isNotBlank() }
+        val normalizedImage = imageUrl?.trim()?.takeIf { it.isNotBlank() }
+
+        val nextTitle = if (hasTitleUpdate) normalizedTitle else currentRow[PostTable.title]
+        val nextContent = if (hasContentUpdate) normalizedContent else currentRow[PostTable.content]
+        val nextImage = if (hasImageUpdate) normalizedImage else currentRow[PostTable.imageUrl]
+
+        if (nextContent.isNullOrBlank() && nextImage.isNullOrBlank()) {
+            throw IllegalArgumentException("Bài viết phải có nội dung hoặc hình ảnh")
+        }
+
+        PostTable.update({
+            (PostTable.id eq postId) and (PostTable.userId eq userId)
+        }) {
+            it[PostTable.title] = nextTitle
+            it[PostTable.content] = nextContent
+            it[PostTable.imageUrl] = nextImage
+        }
+
+        getPostByIdInternal(postId, userId)
     }
     
     // Comments
@@ -527,7 +842,14 @@ class PostRepository {
         )
     }
     
-    private fun rowToPost(row: ResultRow, isLiked: Boolean, isSaved: Boolean): Post {
+    private fun rowToPost(
+        row: ResultRow,
+        isLiked: Boolean,
+        isSaved: Boolean,
+        trendScore: Int? = null,
+        trendRank: Int? = null,
+        isTrending: Boolean = false
+    ): Post {
         return Post(
             id = row[PostTable.id].value,
             userId = row[PostTable.userId].value,
@@ -541,6 +863,9 @@ class PostRepository {
             commentCount = row[PostTable.commentCount],
             isLiked = isLiked,
             isSaved = isSaved,
+            trendScore = trendScore,
+            trendRank = trendRank,
+            isTrending = isTrending,
             createdAt = row[PostTable.createdAt].toString()
         )
     }

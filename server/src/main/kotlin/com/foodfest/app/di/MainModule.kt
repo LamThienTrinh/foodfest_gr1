@@ -12,6 +12,10 @@ import com.foodfest.app.features.follow.FollowRepository
 import com.foodfest.app.features.follow.FollowService
 import com.foodfest.app.features.personaldish.PersonalDishRepository
 import com.foodfest.app.features.personaldish.PersonalDishService
+import com.foodfest.app.features.notification.NotificationRepository
+import com.foodfest.app.features.notification.NotificationService
+import com.foodfest.app.features.notification.PantryExpiryScheduler
+import com.foodfest.app.features.notification.PushNotificationService
 import com.foodfest.app.features.post.PostRepository
 import com.foodfest.app.features.post.PostService
 import com.foodfest.app.features.tag.TagRepository
@@ -50,4 +54,10 @@ val mainModule = module {
     // Family feature
     single { FamilyRepository() }
     single { FamilyService(get()) }
+
+    // Notification feature
+    single { NotificationRepository() }
+    single { PushNotificationService() }
+    single { NotificationService(get(), get()) }
+    single { PantryExpiryScheduler(get()) }
 }

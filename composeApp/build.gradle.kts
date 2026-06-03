@@ -59,6 +59,8 @@ kotlin {
             implementation("io.ktor:ktor-client-content-negotiation:3.0.1")
             implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.1")
             implementation("io.ktor:ktor-client-logging:3.0.1")
+            // Datetime utilities for weekly menu calculations.
+            implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
             // Multiplatform Settings - Lưu token
             implementation("com.russhwolf:multiplatform-settings:1.1.1")
             implementation("com.russhwolf:multiplatform-settings-no-arg:1.1.1")

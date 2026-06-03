@@ -12,4 +12,5 @@ object AppColors {
     val GrayPlaceholder = Color(0xFF9E9E9E)
     val TextPrimary = Color(0xFF333333)
     val TextSecondary = Color(0xFF666666)  // Màu text phụ
+    val Error = Color(0xFFB00020)
 }

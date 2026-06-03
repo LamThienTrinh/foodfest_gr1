@@ -22,17 +22,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.darkrockstudios.libraries.mpfilepicker.FilePicker
+import com.foodfest.app.components.AppImage
 import com.foodfest.app.features.auth.data.AuthRepository
 import com.foodfest.app.features.auth.data.User
 import com.foodfest.app.features.profile.presentation.components.*
 import com.foodfest.app.core.storage.TokenManager
 import com.foodfest.app.theme.AppColors
+import com.foodfest.app.utils.readBytesFromPath
+import com.foodfest.app.utils.resizeImage
 import foodfest.composeapp.generated.resources.Res
 import foodfest.composeapp.generated.resources.default_avatar
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalEncodingApi::class)
 @Composable
 fun EditProfileScreen(
     user: User?,
@@ -53,7 +59,11 @@ fun EditProfileScreen(
     // UI states
     var isUpdatingName by remember { mutableStateOf(false) }
     var isChangingPassword by remember { mutableStateOf(false) }
+    var isUpdatingAvatar by remember { mutableStateOf(false) }
     var showChangePassword by remember { mutableStateOf(false) }
+    var showAvatarPicker by remember { mutableStateOf(false) }
+    var avatarProcessMessage by remember { mutableStateOf<String?>(null) }
+    var avatarPreviewDataUrl by remember { mutableStateOf<String?>(null) }
     
     // Validation
     var nameError by remember { mutableStateOf<String?>(null) }
@@ -147,6 +157,58 @@ fun EditProfileScreen(
             isChangingPassword = false
         }
     }
+
+    FilePicker(
+        show = showAvatarPicker,
+        fileExtensions = listOf("jpg", "jpeg", "png", "gif", "webp")
+    ) { mpFile ->
+        showAvatarPicker = false
+        if (mpFile == null) return@FilePicker
+
+        scope.launch {
+            val token = TokenManager.getToken()
+            if (token.isNullOrBlank()) {
+                snackbarHostState.showSnackbar("Không tìm thấy phiên đăng nhập")
+                return@launch
+            }
+
+            isUpdatingAvatar = true
+            avatarProcessMessage = "Đang xử lý ảnh..."
+
+            try {
+                val originalBytes = readBytesFromPath(mpFile.path)
+                val resizedBytes = resizeImage(
+                    imageBytes = originalBytes,
+                    maxWidth = 1024,
+                    maxHeight = 1024,
+                    quality = 85
+                )
+
+                val avatarBase64 = Base64.encode(resizedBytes)
+                avatarPreviewDataUrl = "data:image/jpeg;base64,$avatarBase64"
+                avatarProcessMessage = "Đang cập nhật avatar..."
+
+                authRepo.updateAvatar(token, avatarBase64)
+                    .onSuccess { updatedUser ->
+                        avatarPreviewDataUrl = null
+                        avatarProcessMessage = "✅ Cập nhật avatar thành công"
+                        onProfileUpdated(updatedUser)
+                        snackbarHostState.showSnackbar("Đã cập nhật ảnh đại diện")
+                    }
+                    .onFailure { error ->
+                        avatarPreviewDataUrl = null
+                        avatarProcessMessage = "❌ ${error.message ?: "Cập nhật avatar thất bại"}"
+                        snackbarHostState.showSnackbar(error.message ?: "Cập nhật avatar thất bại")
+                    }
+            } catch (e: Exception) {
+                avatarPreviewDataUrl = null
+                avatarProcessMessage = "❌ ${e.message ?: "Xử lý ảnh thất bại"}"
+                snackbarHostState.showSnackbar(e.message ?: "Xử lý ảnh thất bại")
+            } finally {
+                isUpdatingAvatar = false
+            }
+        }
+    }
     
     Scaffold(
         topBar = {
@@ -183,9 +245,20 @@ fun EditProfileScreen(
         ) {
             // Avatar section
             AvatarSection(
-                avatarUrl = user?.avatarUrl,
-                onChangeAvatar = { /* TODO: Implement avatar change */ }
+                avatarUrl = avatarPreviewDataUrl ?: user?.avatarUrl,
+                onChangeAvatar = { if (!isUpdatingAvatar) showAvatarPicker = true },
+                isLoading = isUpdatingAvatar
             )
+
+            if (!avatarProcessMessage.isNullOrBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = avatarProcessMessage.orEmpty(),
+                    color = if (avatarProcessMessage?.startsWith("✅") == true) Color(0xFF2E7D32) else AppColors.GrayPlaceholder,
+                    fontSize = 13.sp,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             
             Spacer(Modifier.height(32.dp))
             
@@ -331,7 +404,8 @@ fun EditProfileScreen(
 @Composable
 private fun AvatarSection(
     avatarUrl: String?,
-    onChangeAvatar: () -> Unit
+    onChangeAvatar: () -> Unit,
+    isLoading: Boolean
 ) {
     Box(
         modifier = Modifier.fillMaxWidth(),
@@ -351,11 +425,19 @@ private fun AvatarSection(
                     .border(3.dp, AppColors.Orange, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Image(
-                    painter = painterResource(Res.drawable.default_avatar),
-                    contentDescription = "Avatar",
-                    modifier = Modifier.size(116.dp).clip(CircleShape)
-                )
+                if (!avatarUrl.isNullOrBlank()) {
+                    AppImage(
+                        url = avatarUrl,
+                        contentDescription = "Avatar",
+                        modifier = Modifier.size(116.dp).clip(CircleShape)
+                    )
+                } else {
+                    Image(
+                        painter = painterResource(Res.drawable.default_avatar),
+                        contentDescription = "Avatar",
+                        modifier = Modifier.size(116.dp).clip(CircleShape)
+                    )
+                }
             }
             
             // Camera icon
@@ -370,9 +452,19 @@ private fun AvatarSection(
             ) {
                 Icon(
                     imageVector = Icons.Default.CameraAlt,
-                    contentDescription = "Đổi ảnh",
+                    contentDescription = if (isLoading) "Đang cập nhật" else "Đổi ảnh",
                     tint = Color.White,
                     modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .align(Alignment.Center),
+                    color = AppColors.Orange,
+                    strokeWidth = 3.dp
                 )
             }
         }
