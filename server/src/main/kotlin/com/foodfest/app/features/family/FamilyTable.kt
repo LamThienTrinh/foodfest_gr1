@@ -656,6 +656,27 @@ class FamilyRepository {
         }.singleOrNull() ?: throw AppException.NotFound("Saved meal not found")
     }
 
+    private fun getSavedMealDetailInTransaction(familyId: Int, savedMealId: Int): FamilySavedMealDetail {
+        val savedMealRow = getSavedMealRowOrThrow(familyId, savedMealId)
+        val summaryRow = FamilySavedMealTable
+            .join(AuthTable, JoinType.INNER, additionalConstraint = {
+                FamilySavedMealTable.createdByUserId eq AuthTable.id
+            })
+            .select {
+                (FamilySavedMealTable.id eq savedMealRow[FamilySavedMealTable.id].value) and
+                    (FamilySavedMealTable.familyId eq familyId)
+            }
+            .singleOrNull() ?: throw AppException.NotFound("Saved meal not found")
+
+        val items = FamilySavedMealItemTable
+            .select { FamilySavedMealItemTable.savedMealId eq savedMealId }
+            .orderBy(FamilySavedMealItemTable.createdAt to SortOrder.ASC)
+            .map { rowToFamilySavedMealItem(it) }
+
+        val summary = rowToFamilySavedMealSummary(summaryRow, items.size)
+        return FamilySavedMealDetail(savedMeal = summary, items = items)
+    }
+
     private fun getPantryItemRowOrThrow(familyId: Int, itemId: Int): ResultRow {
         return FamilyPantryItemTable.select {
             (FamilyPantryItemTable.id eq itemId) and
@@ -1008,22 +1029,7 @@ class FamilyRepository {
     ): FamilySavedMealDetail = newSuspendedTransaction(Dispatchers.IO) {
         requireFamilyExists(familyId)
         requireFamilyMember(familyId, requesterUserId)
-
-        val savedMealRow = getSavedMealRowOrThrow(familyId, savedMealId)
-        val summaryRow = FamilySavedMealTable
-            .join(AuthTable, JoinType.INNER, additionalConstraint = {
-                FamilySavedMealTable.createdByUserId eq AuthTable.id
-            })
-            .select { FamilySavedMealTable.id eq savedMealRow[FamilySavedMealTable.id].value }
-            .single()
-
-        val items = FamilySavedMealItemTable
-            .select { FamilySavedMealItemTable.savedMealId eq savedMealId }
-            .orderBy(FamilySavedMealItemTable.createdAt to SortOrder.ASC)
-            .map { rowToFamilySavedMealItem(it) }
-
-        val summary = rowToFamilySavedMealSummary(summaryRow, items.size)
-        FamilySavedMealDetail(savedMeal = summary, items = items)
+        getSavedMealDetailInTransaction(familyId, savedMealId)
     }
 
     suspend fun createSavedMealFromMenu(
@@ -1068,7 +1074,7 @@ class FamilyRepository {
             }
         }
 
-        getSavedMealDetail(familyId, savedMealId, requesterUserId)
+        getSavedMealDetailInTransaction(familyId, savedMealId)
     }
 
     /**
