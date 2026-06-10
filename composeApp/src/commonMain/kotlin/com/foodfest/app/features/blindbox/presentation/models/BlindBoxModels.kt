@@ -6,6 +6,11 @@ import com.foodfest.app.features.tag.data.Tag
 
 enum class TagCategory { TYPE, TASTE, INGREDIENT }
 
+enum class DishSourceType {
+    SYSTEM,
+    PERSONAL
+}
+
 data class TagUI(
     val id: Int,
     val name: String,
@@ -15,9 +20,13 @@ data class TagUI(
 
 data class DishUI(
     val id: Int,
+    val sourceType: DishSourceType = DishSourceType.SYSTEM,
     val name: String,
     val imageUrl: String? = null
-)
+) {
+    val wheelKey: String
+        get() = "${sourceType.name}:$id"
+}
 
 data class Confetti(
     val x: Float,

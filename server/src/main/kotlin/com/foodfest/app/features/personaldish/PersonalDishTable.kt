@@ -171,6 +171,16 @@ class PersonalDishRepository {
             
             dishes to total
         }
+
+    suspend fun getAllByUser(userId: Int): List<PersonalDish> = newSuspendedTransaction(Dispatchers.IO) {
+        PersonalDishTable
+            .select { PersonalDishTable.userId eq userId }
+            .orderBy(PersonalDishTable.createdAt to SortOrder.DESC)
+            .map { row ->
+                val tags = getTagsForDishInCurrentTx(row[PersonalDishTable.id].value)
+                rowToPersonalDish(row, tags)
+            }
+    }
     
     suspend fun update(personalDishId: Int, userId: Int, request: UpdatePersonalDishRequest): PersonalDish? = 
         newSuspendedTransaction(Dispatchers.IO) {

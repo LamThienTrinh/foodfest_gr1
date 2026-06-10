@@ -2,6 +2,7 @@ package com.foodfest.app.di
 
 import com.foodfest.app.features.auth.AuthRepository
 import com.foodfest.app.features.auth.AuthService
+import com.foodfest.app.features.blindbox.BlindBoxService
 import com.foodfest.app.features.dish.DishRepository
 import com.foodfest.app.features.dish.DishService
 import com.foodfest.app.features.family.FamilyRepository
@@ -34,6 +35,9 @@ val mainModule = module {
     // Dish feature
     single { DishRepository() }
     single { DishService(get(), get()) }
+
+    // Blind Box feature
+    single { BlindBoxService(get(), get(), get()) }
     
     // Favorite feature
     single { FavoriteRepository() }

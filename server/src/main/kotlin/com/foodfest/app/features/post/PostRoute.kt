@@ -179,67 +179,70 @@ fun Route.postRoutes(postService: PostService) {
         // 2. ROUTE PUBLIC (Đặt phía sau để tránh nuốt mất route cụ thể)
         // =================================================================
 
-        // Get posts feed (public, nhưng có thể check liked/saved nếu đăng nhập)
-        get {
-            val principal = call.principal<JWTPrincipal>()
-            val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val search = call.request.queryParameters["search"]?.takeIf { it.isNotBlank() }
-            val postType = call.request.queryParameters["postType"]?.takeIf { it.isNotBlank() }
-            val searchType = call.request.queryParameters["searchType"]?.trim()?.lowercase() ?: "post"
+        authenticate("auth-jwt", optional = true) {
+            // Get posts feed (public, nhưng có thể check liked/saved nếu đăng nhập)
+            get {
+                val principal = call.principal<JWTPrincipal>()
+                val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val search = call.request.queryParameters["search"]?.takeIf { it.isNotBlank() }
+                val postType = call.request.queryParameters["postType"]?.takeIf { it.isNotBlank() }
+                val searchType = call.request.queryParameters["searchType"]?.trim()?.lowercase() ?: "post"
 
-            // Parse boolean chặt để tránh gọi sai contract.
-            val includeTrendingRaw = call.request.queryParameters["includeTrending"]
-            val includeTrending = when (includeTrendingRaw?.trim()?.lowercase()) {
-                null -> false
-                "true" -> true
-                "false" -> false
-                else -> {
-                    return@get call.respond(
-                        HttpStatusCode.BadRequest,
-                        ApiResponse.error<Unit>("includeTrending must be true or false")
-                    )
+                // Parse boolean chặt để tránh gọi sai contract.
+                val includeTrendingRaw = call.request.queryParameters["includeTrending"]
+                val includeTrending = when (includeTrendingRaw?.trim()?.lowercase()) {
+                    null -> false
+                    "true" -> true
+                    "false" -> false
+                    else -> {
+                        return@get call.respond(
+                            HttpStatusCode.BadRequest,
+                            ApiResponse.error<Unit>("includeTrending must be true or false")
+                        )
+                    }
                 }
+
+                postService.getPosts(page, principal?.userId, search, postType, searchType, includeTrending)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get posts"))
+                    }
             }
 
-            postService.getPosts(page, principal?.userId, search, postType, searchType, includeTrending)
-                .onSuccess { result ->
-                    call.respond(HttpStatusCode.OK, ApiResponse.success(result))
-                }
-                .onFailure { error ->
-                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get posts"))
-                }
-        }
+            // Get comments of a post
+            get("/{postId}/comments") {
+                val principal = call.principal<JWTPrincipal>()
+                val postId = call.parameters["postId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
 
-        // Get comments of a post
-        get("/{postId}/comments") {
-            val postId = call.parameters["postId"]?.toIntOrNull()
-                ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
+                val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
 
-            val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+                postService.getComments(postId, page, limit, principal?.userId)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get comments"))
+                    }
+            }
 
-            postService.getComments(postId, page, limit)
-                .onSuccess { result ->
-                    call.respond(HttpStatusCode.OK, ApiResponse.success(result))
-                }
-                .onFailure { error ->
-                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get comments"))
-                }
-        }
+            // Get single post (Đây là WILDCARD route, nên để CUỐI CÙNG trong nhóm GET)
+            get("/{postId}") {
+                val principal = call.principal<JWTPrincipal>()
+                val postId = call.parameters["postId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
 
-        // Get single post (Đây là WILDCARD route, nên để CUỐI CÙNG trong nhóm GET)
-        get("/{postId}") {
-            val principal = call.principal<JWTPrincipal>()
-            val postId = call.parameters["postId"]?.toIntOrNull()
-                ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid post id"))
-
-            postService.getPostById(postId, principal?.userId)
-                .onSuccess { post ->
-                    call.respond(HttpStatusCode.OK, ApiResponse.success(post))
-                }
-                .onFailure { error ->
-                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get post"))
-                }
+                postService.getPostById(postId, principal?.userId)
+                    .onSuccess { post ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(post))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get post"))
+                    }
+            }
         }
     }
 
@@ -263,21 +266,24 @@ fun Route.postRoutes(postService: PostService) {
             }
         }
 
-        // Get level-2 replies of a level-1 comment
-        get("/{commentId}/replies") {
-            val commentId = call.parameters["commentId"]?.toIntOrNull()
-                ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid comment id"))
+        authenticate("auth-jwt", optional = true) {
+            // Get level-2 replies of a level-1 comment
+            get("/{commentId}/replies") {
+                val principal = call.principal<JWTPrincipal>()
+                val commentId = call.parameters["commentId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid comment id"))
 
-            val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
+                val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val limit = call.request.queryParameters["limit"]?.toIntOrNull()?.coerceIn(1, 50) ?: 20
 
-            postService.getReplies(commentId, page, limit)
-                .onSuccess { result ->
-                    call.respond(HttpStatusCode.OK, ApiResponse.success(result))
-                }
-                .onFailure { error ->
-                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get replies"))
-                }
+                postService.getReplies(commentId, page, limit, principal?.userId)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get replies"))
+                    }
+            }
         }
     }
 
@@ -285,23 +291,25 @@ fun Route.postRoutes(postService: PostService) {
     // 3. USER POSTS ROUTE (Riêng biệt, không ảnh hưởng)
     // =================================================================
     route("/api/users/{userId}/posts") {
-        get {
-            val principal = call.principal<JWTPrincipal>()
+        authenticate("auth-jwt", optional = true) {
+            get {
+                val principal = call.principal<JWTPrincipal>()
 
-            val userId = call.parameters["userId"]?.toIntOrNull()
-                ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid user id"))
+                val userId = call.parameters["userId"]?.toIntOrNull()
+                    ?: return@get call.respond(HttpStatusCode.BadRequest, ApiResponse.error<Unit>("Invalid user id"))
 
-            val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
-            val startDate = call.request.queryParameters["startDate"]
-            val endDate = call.request.queryParameters["endDate"]
+                val page = call.request.queryParameters["page"]?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+                val startDate = call.request.queryParameters["startDate"]
+                val endDate = call.request.queryParameters["endDate"]
 
-            postService.getUserPosts(userId, page, principal?.userId, startDate, endDate)
-                .onSuccess { result ->
-                    call.respond(HttpStatusCode.OK, ApiResponse.success(result))
-                }
-                .onFailure { error ->
-                    call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get user posts"))
-                }
+                postService.getUserPosts(userId, page, principal?.userId, startDate, endDate)
+                    .onSuccess { result ->
+                        call.respond(HttpStatusCode.OK, ApiResponse.success(result))
+                    }
+                    .onFailure { error ->
+                        call.respond(error.toAppStatus(), ApiResponse.error<Unit>(error.message ?: "Failed to get user posts"))
+                    }
+            }
         }
     }
 }

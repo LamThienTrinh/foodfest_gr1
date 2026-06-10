@@ -23,6 +23,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -30,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +49,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.foodfest.app.components.FoodFestToggleRow
+import com.foodfest.app.features.blindbox.presentation.models.DishSourceType
 import com.foodfest.app.features.blindbox.presentation.components.DishSelectionSheet
 import com.foodfest.app.features.blindbox.presentation.components.GiftBoxAnimation
 import com.foodfest.app.features.blindbox.presentation.components.GiftBoxBody
@@ -56,14 +61,18 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BlindBoxScreen(
-    onNavigateToDishDetail: (Int) -> Unit = {} // Callback để navigate đến chi tiết món với ID
+    onNavigateToDishDetail: (Int) -> Unit = {},
+    onNavigateToPersonalDishDetail: (Int) -> Unit = {},
+    onNavigateToCreateMyDish: () -> Unit = {},
+    personalDishRefreshVersion: Int = 0,
+    forcePersonalSourceRefreshVersion: Int = 0
 ) {
     val viewModel = remember { BlindBoxViewModel() }
     val scope = rememberCoroutineScope()
     var showBottomSheet by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        viewModel.loadInitialData()
+    LaunchedEffect(personalDishRefreshVersion, forcePersonalSourceRefreshVersion) {
+        viewModel.loadInitialData(preferPersonalSource = forcePersonalSourceRefreshVersion > 0)
     }
 
     Scaffold(
@@ -88,6 +97,61 @@ fun BlindBoxScreen(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Nguồn món",
+                            color = AppColors.Brown,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        FoodFestToggleRow(
+                            label = "Món hệ thống",
+                            checked = viewModel.includeSystemDishes,
+                            onCheckedChange = {
+                                scope.launch { viewModel.toggleIncludeSystemDishes() }
+                            }
+                        )
+                        FoodFestToggleRow(
+                            label = "Món của tôi",
+                            checked = viewModel.includePersonalDishes,
+                            onCheckedChange = {
+                                scope.launch { viewModel.toggleIncludePersonalDishes() }
+                            }
+                        )
+                        if (!viewModel.includeSystemDishes && !viewModel.includePersonalDishes) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Chọn ít nhất một nguồn món",
+                                color = AppColors.Error,
+                                fontSize = 12.sp
+                            )
+                        }
+                        if (viewModel.shouldShowCreatePersonalDishCta) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Chưa có món cá nhân phù hợp để random.",
+                                color = AppColors.GrayPlaceholder,
+                                fontSize = 13.sp
+                            )
+                            TextButton(onClick = onNavigateToCreateMyDish) {
+                                Text(
+                                    text = "Tạo món của tôi",
+                                    color = AppColors.Orange,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
                 // Wheel items selection card
                 Box(
                     modifier = Modifier
@@ -161,6 +225,10 @@ fun BlindBoxScreen(
                     Text(viewModel.randomError!!, color = Color.Red, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(8.dp))
                 }
+                if (viewModel.sourceErrorMessage != null) {
+                    Text(viewModel.sourceErrorMessage!!, color = AppColors.Error, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
 
                 // Gift Box Animation
                 Box(
@@ -177,9 +245,18 @@ fun BlindBoxScreen(
                             winningDish = viewModel.winningDish, // Truyền cả object món ăn
                             onViewDetailsClick = {
                                 viewModel.winningDish?.let { dish ->
-                                    onNavigateToDishDetail(dish.id)
+                                    when (dish.sourceType) {
+                                        DishSourceType.SYSTEM -> onNavigateToDishDetail(dish.id)
+                                        DishSourceType.PERSONAL -> onNavigateToPersonalDishDetail(dish.id)
+                                    }
                                 }
-                            }
+                            },
+                            onShareResultClick = {
+                                scope.launch { viewModel.shareWinningDishToFollowers() }
+                            },
+                            isPostingResult = viewModel.isPostingResult,
+                            shareResultEnabled = !viewModel.hasPostedCurrentWinningDish,
+                            postResultMessage = viewModel.postResultMessage
                         )
                     } else {
                         // Trạng thái tĩnh ban đầu: Hiển thị hộp quà đóng
@@ -204,10 +281,12 @@ fun BlindBoxScreen(
                         .height(56.dp),
                     shape = RoundedCornerShape(28.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = AppColors.Orange),
-                    enabled = !viewModel.isOpeningBox
+                    enabled = !viewModel.isOpeningBox &&
+                        !viewModel.isLoadingRandom &&
+                        (viewModel.includeSystemDishes || viewModel.includePersonalDishes)
                 ) {
                     Text(
-                        if (viewModel.isOpeningBox) "Đang mở..." else "Mở hộp quà (Random)",
+                        if (viewModel.isOpeningBox || viewModel.isLoadingRandom) "Đang mở..." else "Mở hộp quà (Random)",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )

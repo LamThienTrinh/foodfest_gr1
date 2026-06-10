@@ -52,10 +52,9 @@ class PostService(private val repository: PostRepository) {
 
     private val allowedSearchTypes = setOf("post", "user")
 
-    private suspend fun ensurePostExists(postId: Int) {
-        if (!repository.existsPost(postId)) {
-            throw AppException.NotFound("Không tìm thấy bài viết")
-        }
+    private suspend fun ensurePostVisible(postId: Int, currentUserId: Int?): Post {
+        return repository.getPostById(postId, currentUserId)
+            ?: throw AppException.NotFound("Không tìm thấy bài viết")
     }
 
     private suspend fun getCommentNodeOrThrow(commentId: Int): CommentNode {
@@ -182,6 +181,7 @@ class PostService(private val repository: PostRepository) {
     }
     
     suspend fun likePost(userId: Int, postId: Int): Result<LikeResult> = runCatching {
+        ensurePostVisible(postId, userId)
         val isLiked = repository.likePost(userId, postId)
         val post = repository.getPostById(postId, userId) 
             ?: throw NoSuchElementException("Không tìm thấy bài viết")
@@ -192,6 +192,7 @@ class PostService(private val repository: PostRepository) {
     }
     
     suspend fun savePost(userId: Int, postId: Int): Result<SaveResult> = runCatching {
+        ensurePostVisible(postId, userId)
         val isSaved = repository.savePost(userId, postId)
         SaveResult(isSaved = isSaved)
     }
@@ -235,7 +236,7 @@ class PostService(private val repository: PostRepository) {
             throw IllegalArgumentException("Nội dung bình luận không được để trống")
         }
 
-        ensurePostExists(postId)
+        ensurePostVisible(postId, userId)
 
         val parentCommentId = request.parentCommentId
         if (parentCommentId != null) {
@@ -260,8 +261,13 @@ class PostService(private val repository: PostRepository) {
             ?: throw IllegalStateException("Không thể thêm bình luận")
     }
     
-    suspend fun getComments(postId: Int, page: Int, limit: Int = 20): Result<CommentListResponse> = runCatching {
-        ensurePostExists(postId)
+    suspend fun getComments(
+        postId: Int,
+        page: Int,
+        limit: Int = 20,
+        currentUserId: Int? = null
+    ): Result<CommentListResponse> = runCatching {
+        ensurePostVisible(postId, currentUserId)
 
         val safeLimit = limit.coerceIn(1, 50)
         val (comments, total) = repository.getComments(postId, page, safeLimit)
@@ -273,8 +279,14 @@ class PostService(private val repository: PostRepository) {
         )
     }
 
-    suspend fun getReplies(commentId: Int, page: Int, limit: Int = 20): Result<CommentListResponse> = runCatching {
+    suspend fun getReplies(
+        commentId: Int,
+        page: Int,
+        limit: Int = 20,
+        currentUserId: Int? = null
+    ): Result<CommentListResponse> = runCatching {
         val parentComment = getCommentNodeOrThrow(commentId)
+        ensurePostVisible(parentComment.postId, currentUserId)
         if (parentComment.parentCommentId != null || parentComment.depth != 0) {
             throw AppException.Validation("Chi lay duoc replies cua comment cap 1")
         }

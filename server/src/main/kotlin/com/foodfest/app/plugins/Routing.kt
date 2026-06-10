@@ -1,6 +1,8 @@
 package com.foodfest.app.plugins
 
 import com.foodfest.app.features.auth.AuthRoutes
+import com.foodfest.app.features.blindbox.BlindBoxService
+import com.foodfest.app.features.blindbox.blindBoxRoutes
 import com.foodfest.app.features.dish.DishService
 import com.foodfest.app.features.dish.dishRoutes
 import com.foodfest.app.features.family.FamilyService
@@ -29,6 +31,7 @@ fun Application.configureRouting() {
     val authService = koin.get<com.foodfest.app.features.auth.AuthService>()
     val tagService = koin.get<TagService>()
     val dishService = koin.get<DishService>()
+    val blindBoxService = koin.get<BlindBoxService>()
     val favoriteService = koin.get<FavoriteService>()
     val personalDishService = koin.get<PersonalDishService>()
     val postService = koin.get<PostService>()
@@ -49,6 +52,7 @@ fun Application.configureRouting() {
         AuthRoutes(authService)
         tagRoutes(tagService)
         dishRoutes(dishService)
+        blindBoxRoutes(blindBoxService)
         favoriteRoutes(favoriteService)
         personalDishRoutes(personalDishService)
         postRoutes(postService)

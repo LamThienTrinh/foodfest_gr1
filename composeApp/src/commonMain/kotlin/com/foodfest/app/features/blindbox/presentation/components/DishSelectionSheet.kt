@@ -145,9 +145,9 @@ fun DishSelectionSheet(
                         items(viewModel.allDishes) { dish ->
                             DishSelectionItem(
                                 dish = dish,
-                                isOnWheel = wheelItems.any { it.id == dish.id },
+                                isOnWheel = wheelItems.any { it.wheelKey == dish.wheelKey },
                                 onToggle = {
-                                    if (wheelItems.any { it.id == dish.id }) {
+                                    if (wheelItems.any { it.wheelKey == dish.wheelKey }) {
                                         viewModel.removeDishFromWheel(dish)
                                     } else {
                                         viewModel.addDishToWheel(dish)

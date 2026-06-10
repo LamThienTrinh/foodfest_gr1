@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.foodfest.app.components.AppImage
 import com.foodfest.app.features.blindbox.presentation.models.Confetti
+import com.foodfest.app.features.blindbox.presentation.models.DishSourceType
 import com.foodfest.app.features.blindbox.presentation.models.DishUI
 import com.foodfest.app.theme.AppColors
 import kotlinx.coroutines.delay
@@ -42,7 +44,11 @@ fun GiftBoxAnimation(
     isOpening: Boolean,
     showResult: Boolean,
     winningDish: DishUI?, // Nhận cả object món ăn
-    onViewDetailsClick: () -> Unit // Callback khi bấm nút chi tiết
+    onViewDetailsClick: () -> Unit, // Callback khi bấm nút chi tiết
+    onShareResultClick: (() -> Unit)? = null,
+    isPostingResult: Boolean = false,
+    shareResultEnabled: Boolean = true,
+    postResultMessage: String? = null
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "confetti")
     var confettiList by remember { mutableStateOf<List<Confetti>>(emptyList()) }
@@ -225,7 +231,47 @@ fun GiftBoxAnimation(
                     shape = RoundedCornerShape(24.dp),
                     modifier = Modifier.height(50.dp)
                 ) {
-                    Text("Xem chi tiết món này", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    val detailText = if (winningDish.sourceType == DishSourceType.PERSONAL) {
+                        "Xem món của tôi"
+                    } else {
+                        "Xem chi tiết món này"
+                    }
+                    Text(detailText, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (onShareResultClick != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = onShareResultClick,
+                        enabled = shareResultEnabled && !isPostingResult,
+                        colors = ButtonDefaults.buttonColors(containerColor = AppColors.Brown),
+                        shape = RoundedCornerShape(24.dp),
+                        modifier = Modifier.height(46.dp)
+                    ) {
+                        if (isPostingResult) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Text(
+                                if (shareResultEnabled) "Đăng cho follower" else "Đã đăng",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                postResultMessage?.let { message ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = message,
+                        color = if (message.startsWith("Đã")) Color(0xFF2E7D32) else AppColors.Error,
+                        fontSize = 13.sp,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }

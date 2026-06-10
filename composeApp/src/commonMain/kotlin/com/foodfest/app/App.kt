@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
@@ -36,7 +37,10 @@ import com.foodfest.app.features.family.presentation.FamilyRecentVotesScreen
 import com.foodfest.app.features.notification.data.AppNotification
 import com.foodfest.app.features.notification.presentation.NotificationScreen
 import com.foodfest.app.core.cache.SharedDishNameCache
+import com.foodfest.app.features.personaldish.data.PersonalDishRepository
 import com.foodfest.app.features.personaldish.presentation.MyDishesScreen
+import com.foodfest.app.features.personaldish.presentation.PersonalDishEditorScreen
+import com.foodfest.app.features.personaldish.presentation.PersonalDishDetailScreen
 import com.foodfest.app.features.profile.presentation.MyPostsScreen
 import com.foodfest.app.features.profile.presentation.UserProfileScreen
 import com.foodfest.app.features.savedposts.presentation.SavedPostsScreen
@@ -55,8 +59,10 @@ enum class Screen {
     EditProfile,
     DishImageUpload,
     DishDetail,
+    PersonalDishDetail,
     Favorites,
     MyDishes,
+    CreatePersonalDish,
     MyPosts,
     UserProfile,
     SavedPosts,
@@ -83,6 +89,7 @@ fun App() {
         var isCheckingAuth by remember { mutableStateOf(true) }
         var currentTab by remember { mutableStateOf(MainTab.Home) }
         var selectedDishId by remember { mutableStateOf<Int?>(null) }
+        var selectedPersonalDishId by remember { mutableStateOf<Int?>(null) }
         var selectedUserProfileId by remember { mutableStateOf<Int?>(null) }
         var selectedFamilyId by remember { mutableStateOf<Int?>(null) }
         var selectedFamilyMenuId by remember { mutableStateOf<Int?>(null) }
@@ -91,6 +98,10 @@ fun App() {
         var selectedFamilyShoppingListId by remember { mutableStateOf<Int?>(null) }
         var openFamilyVoteOnEntry by remember { mutableStateOf(false) }
         var previousScreenBeforeUserProfile by remember { mutableStateOf(Screen.Main) }
+        var previousScreenBeforeCreatePersonalDish by remember { mutableStateOf(Screen.Main) }
+        var previousTabBeforeCreatePersonalDish by remember { mutableStateOf(MainTab.Profile) }
+        var personalDishRefreshVersion by remember { mutableStateOf(0) }
+        var blindBoxPersonalDishRefreshVersion by remember { mutableStateOf(0) }
         var previousScreenBeforeSavedMeals by remember { mutableStateOf(Screen.FamilyHome) }
         var previousTabBeforeSavedMeals by remember { mutableStateOf(MainTab.Family) }
         
@@ -114,6 +125,19 @@ fun App() {
             selectedFamilyId = familyId
             currentTab = MainTab.Family
             currentScreen = Screen.FamilyHome
+        }
+
+        fun openCreatePersonalDish() {
+            previousScreenBeforeCreatePersonalDish = currentScreen
+            previousTabBeforeCreatePersonalDish = currentTab
+            currentScreen = Screen.CreatePersonalDish
+        }
+
+        fun returnFromCreatePersonalDish() {
+            currentScreen = previousScreenBeforeCreatePersonalDish
+            if (currentScreen == Screen.Main) {
+                currentTab = previousTabBeforeCreatePersonalDish
+            }
         }
 
         fun handleNotificationNavigation(notification: AppNotification) {
@@ -219,6 +243,8 @@ fun App() {
                     Screen.Main -> {
                         MainScreen(
                             currentTab = currentTab,
+                            personalDishRefreshVersion = personalDishRefreshVersion,
+                            blindBoxPersonalDishRefreshVersion = blindBoxPersonalDishRefreshVersion,
                             onSelectTab = { currentTab = it },
                             user = currentUser,
                             onLogout = {
@@ -235,6 +261,10 @@ fun App() {
                             onNavigateToDishDetail = { dishId ->
                                 selectedDishId = dishId
                                 currentScreen = Screen.DishDetail
+                            },
+                            onNavigateToPersonalDishDetail = { personalDishId ->
+                                selectedPersonalDishId = personalDishId
+                                currentScreen = Screen.PersonalDishDetail
                             },
                             onNavigateToFavorites = {
                                 currentScreen = Screen.Favorites
@@ -288,6 +318,9 @@ fun App() {
                             onNavigateToCreatePost = {
                                 currentScreen = Screen.CreatePost
                             },
+                            onNavigateToCreateMyDish = {
+                                openCreatePersonalDish()
+                            },
                             onNavigateToUserProfile = { userId ->
                                 selectedUserProfileId = userId
                                 previousScreenBeforeUserProfile = Screen.Main
@@ -334,6 +367,18 @@ fun App() {
                             )
                         }
                     }
+
+                    Screen.PersonalDishDetail -> {
+                        selectedPersonalDishId?.let { personalDishId ->
+                            PersonalDishDetailLoaderScreen(
+                                personalDishId = personalDishId,
+                                onBack = {
+                                    currentScreen = Screen.Main
+                                    currentTab = MainTab.BlindBox
+                                }
+                            )
+                        }
+                    }
                     
                     Screen.Favorites -> {
                         FavoriteDishesScreen(
@@ -346,9 +391,34 @@ fun App() {
                     
                     Screen.MyDishes -> {
                         MyDishesScreen(
+                            refreshVersion = personalDishRefreshVersion,
                             onBack = {
                                 currentScreen = Screen.Main
                                 currentTab = MainTab.Profile
+                            },
+                            onExplore = {
+                                currentScreen = Screen.Main
+                                currentTab = MainTab.BlindBox
+                            },
+                            onCreateDish = {
+                                openCreatePersonalDish()
+                            }
+                        )
+                    }
+
+                    Screen.CreatePersonalDish -> {
+                        PersonalDishEditorScreen(
+                            onBack = {
+                                returnFromCreatePersonalDish()
+                            },
+                            onSaved = {
+                                personalDishRefreshVersion += 1
+                                if (previousScreenBeforeCreatePersonalDish == Screen.Main &&
+                                    previousTabBeforeCreatePersonalDish == MainTab.BlindBox
+                                ) {
+                                    blindBoxPersonalDishRefreshVersion += 1
+                                }
+                                returnFromCreatePersonalDish()
                             }
                         )
                     }
@@ -593,14 +663,60 @@ fun App() {
 }
 
 @Composable
+private fun PersonalDishDetailLoaderScreen(
+    personalDishId: Int,
+    onBack: () -> Unit
+) {
+    val repository = remember { PersonalDishRepository() }
+    var isLoading by remember(personalDishId) { mutableStateOf(true) }
+    var errorMessage by remember(personalDishId) { mutableStateOf<String?>(null) }
+    var dish by remember(personalDishId) {
+        mutableStateOf<com.foodfest.app.features.personaldish.data.PersonalDish?>(null)
+    }
+
+    LaunchedEffect(personalDishId) {
+        isLoading = true
+        errorMessage = null
+        repository.getById(personalDishId).fold(
+            onSuccess = { loadedDish ->
+                dish = loadedDish
+                isLoading = false
+            },
+            onFailure = { error ->
+                errorMessage = error.message ?: "Không tải được món của tôi"
+                isLoading = false
+            }
+        )
+    }
+
+    when {
+        dish != null -> PersonalDishDetailScreen(
+            dish = dish!!,
+            onBack = onBack,
+            onDeleted = onBack
+        )
+        else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            if (isLoading) {
+                CircularProgressIndicator()
+            } else {
+                Text(text = errorMessage ?: "Không tải được món của tôi")
+            }
+        }
+    }
+}
+
+@Composable
 private fun MainScreen(
     currentTab: MainTab,
+    personalDishRefreshVersion: Int,
+    blindBoxPersonalDishRefreshVersion: Int,
     onSelectTab: (MainTab) -> Unit,
     user: User?,
     onLogout: () -> Unit,
     onNavigateToEditProfile: () -> Unit,
     onNavigateToDishUpload: () -> Unit,
     onNavigateToDishDetail: (Int) -> Unit,
+    onNavigateToPersonalDishDetail: (Int) -> Unit,
     onNavigateToFavorites: () -> Unit,
     onNavigateToMyDishes: () -> Unit,
     onNavigateToMyPosts: () -> Unit,
@@ -614,6 +730,7 @@ private fun MainScreen(
     onNavigateToFamilyNotes: (Int) -> Unit,
     onNavigateToFamilyVotes: (Int) -> Unit,
     onNavigateToCreatePost: () -> Unit,
+    onNavigateToCreateMyDish: () -> Unit,
     onNavigateToUserProfile: (Int) -> Unit,
     onNavigateToNotifications: () -> Unit
 ) {
@@ -627,7 +744,11 @@ private fun MainScreen(
                 )
                 MainTab.Dish -> DishListScreen()
                 MainTab.BlindBox -> BlindBoxScreen(
-                    onNavigateToDishDetail = onNavigateToDishDetail
+                    onNavigateToDishDetail = onNavigateToDishDetail,
+                    onNavigateToPersonalDishDetail = onNavigateToPersonalDishDetail,
+                    onNavigateToCreateMyDish = onNavigateToCreateMyDish,
+                    personalDishRefreshVersion = personalDishRefreshVersion,
+                    forcePersonalSourceRefreshVersion = blindBoxPersonalDishRefreshVersion
                 )
                 MainTab.Family -> FamilyHomeScreen(
                     onBack = {

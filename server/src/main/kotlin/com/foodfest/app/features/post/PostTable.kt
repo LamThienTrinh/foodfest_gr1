@@ -12,6 +12,7 @@ import org.jetbrains.exposed.sql.IColumnType
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.greaterEq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.lessEq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.neq
 import org.jetbrains.exposed.sql.statements.StatementType
 import org.jetbrains.exposed.sql.javatime.CurrentTimestamp
 import org.jetbrains.exposed.sql.javatime.JavaInstantColumnType
@@ -60,6 +61,10 @@ object CommentTable : IntIdTable("comments", "comment_id") {
     val depth = integer("depth").default(0)
     val content = text("content")
     val createdAt = timestamp("created_at").defaultExpression(CurrentTimestamp())
+}
+
+object PostTypes {
+    const val BLIND_BOX_RESULT = "blind_box_result"
 }
 
 // =============================================
@@ -184,6 +189,8 @@ class PostRepository {
         val row = (PostTable innerJoin AuthTable)
             .select { PostTable.id eq postId }
             .singleOrNull() ?: return null
+
+        if (!canViewPost(row, currentUserId)) return null
         
         val isLiked = currentUserId?.let { uid ->
             PostLikeTable.select { 
@@ -226,6 +233,7 @@ class PostRepository {
 
         // Điều kiện lọc feed.
         val conditions = mutableListOf<Op<Boolean>>()
+        conditions.add(PostTable.postType neq PostTypes.BLIND_BOX_RESULT)
 
         if (!search.isNullOrBlank()) {
             val pattern = LikePattern("%${search.lowercase()}%")
@@ -418,8 +426,8 @@ class PostRepository {
         postType: String?,
         searchType: String
     ): FeedWhereSql {
-        val conditions = mutableListOf<String>()
-        val args = mutableListOf<Pair<IColumnType, Any?>>()
+        val conditions = mutableListOf("p.post_type <> ?")
+        val args = mutableListOf<Pair<IColumnType, Any?>>(TextColumnType() to PostTypes.BLIND_BOX_RESULT)
 
         val normalizedSearch = search?.trim()?.lowercase()
         if (!normalizedSearch.isNullOrBlank()) {
@@ -512,10 +520,15 @@ class PostRepository {
         endDate: LocalDateTime? = null
     ): Pair<List<Post>, Int> = newSuspendedTransaction(Dispatchers.IO) {
         val offset = ((page - 1).coerceAtLeast(0)) * limit
+        val canSeeFollowerOnly = currentUserId == userId ||
+            (currentUserId != null && isFollowing(currentUserId, userId))
 
         // Lọc bài theo chủ sở hữu và khoảng ngày.
         val conditions = mutableListOf<Op<Boolean>>()
         conditions.add(PostTable.userId eq userId)
+        if (!canSeeFollowerOnly) {
+            conditions.add(PostTable.postType neq PostTypes.BLIND_BOX_RESULT)
+        }
         startDate?.let { start ->
             val startInstant = start.atZone(ZoneOffset.UTC).toInstant()
             conditions.add(Op.build { PostTable.createdAt greaterEq startInstant })
@@ -561,15 +574,19 @@ class PostRepository {
     ): Pair<List<Post>, Int> = newSuspendedTransaction(Dispatchers.IO) {
         val offset = ((page - 1).coerceAtLeast(0)) * limit
         
-        val total = SavedPostTable.select { SavedPostTable.userId eq userId }.count().toInt()
-        
         // Join SavedPostTable -> PostTable -> AuthTable (via PostTable.userId)
-        val posts = SavedPostTable
+        val visibleRows = SavedPostTable
             .innerJoin(PostTable, { SavedPostTable.postId }, { PostTable.id })
             .innerJoin(AuthTable, { PostTable.userId }, { AuthTable.id })
             .select { SavedPostTable.userId eq userId }
             .orderBy(SavedPostTable.savedAt to SortOrder.DESC)
-            .limit(limit, offset.toLong())
+            .filter { row -> canViewPost(row, userId) }
+
+        val total = visibleRows.size
+
+        val posts = visibleRows
+            .drop(offset)
+            .take(limit)
             .map { row ->
                 val postId = row[PostTable.id].value
                 
@@ -840,6 +857,22 @@ class PostRepository {
             replyCount = row[CommentTable.replyCount],
             depth = row[CommentTable.depth]
         )
+    }
+
+    private fun isFollowing(followerUserId: Int, authorUserId: Int): Boolean {
+        return FollowTable.select {
+            (FollowTable.followerId eq followerUserId) and (FollowTable.followingId eq authorUserId)
+        }.count() > 0
+    }
+
+    private fun canViewPost(row: ResultRow, currentUserId: Int?): Boolean {
+        if (row[PostTable.postType] != PostTypes.BLIND_BOX_RESULT) return true
+
+        val authorUserId = row[PostTable.userId].value
+        if (currentUserId == authorUserId) return true
+
+        // Blind Box share posts are follower-only; do not expose them by direct id to non-followers.
+        return currentUserId != null && isFollowing(currentUserId, authorUserId)
     }
     
     private fun rowToPost(

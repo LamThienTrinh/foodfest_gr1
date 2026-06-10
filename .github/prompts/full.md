@@ -23,6 +23,7 @@ Mục tiêu chính:
 - App tạo Shopping List từ menu tuần và trừ đi nguyên liệu đã có trong Pantry.
 - Shopping List có checklist để nhiều người cùng tick đã mua/đã chuẩn bị.
 - App có Notifications chung cho lời mời gia đình, like bài viết, Pantry hết hạn, v.v.
+- Kết quả Blind Box hoặc bài share từ flow này chỉ đăng cho follower xem qua Following Feed, không broadcast public toàn hệ thống.
 - Phase 6 có scheduler backend để tự scan Pantry expiry và push notification khi user không mở app.
 
 Vòng trải nghiệm chính:
@@ -39,8 +40,8 @@ Giải thích nhanh:
 - Chat/Notes: gia đình trao đổi nhanh.
 - Shop: app tạo shopping list.
 - Cook: checklist + Pantry hỗ trợ chuẩn bị nấu.
-- Share: user đăng ảnh/bài viết lên feed.
-- Engage: user khác like/comment, tạo thông báo.
+- Share: user đăng ảnh/bài viết cho follower xem trong Following Feed.
+- Engage: follower like/comment, tạo thông báo cho chủ bài.
 
 ---
 
@@ -58,6 +59,18 @@ User có:
 - profile public
 - các món cá nhân
 - các bài post
+
+### Follower-only Post
+
+Follower-only Post là bài đăng sinh ra từ flow share của user, ví dụ sau khi Blind Box chọn được món.
+
+Quy tắc:
+
+- Bài vẫn được tạo bằng Post API hiện có.
+- Audience mặc định là follower của user đăng bài.
+- Follower xem bài qua Following Feed.
+- Không gửi bài này như public broadcast cho toàn bộ user trong MVP.
+- Không gửi notification/push riêng cho follower khi đăng bài để tránh spam; follower chỉ thấy khi mở feed.
 
 ### Family
 
@@ -109,6 +122,33 @@ Dish là món ăn trong catalog chung của hệ thống.
 ### Personal Dish
 
 Personal Dish là món user tự tạo hoặc lưu riêng.
+
+Mỗi Personal Dish thuộc owner user. User khác không được xem/sửa/xóa món cá nhân này nếu không có quyền theo API hiện tại.
+
+Khi một màn có thể hiển thị cả Dish hệ thống và Personal Dish, app phải phân biệt bằng nguồn món:
+
+```text
+sourceType + id
+```
+
+Ví dụ:
+
+- `SYSTEM:5` là món hệ thống có id 5.
+- `PERSONAL:5` là món cá nhân có id 5.
+
+Không được dùng mỗi `id` vì id ở bảng món hệ thống và bảng món cá nhân có thể trùng nhau.
+
+### Blind Box
+
+Blind Box là tính năng random món ăn cho user.
+
+Nguồn random có thể là:
+
+- Món hệ thống.
+- Món của tôi.
+- Cả hai nguồn cùng lúc.
+
+User có thể bật/tắt từng nguồn. Nếu tắt cả hai nguồn thì nút random bị disable và app báo `Chọn ít nhất một nguồn món`.
 
 ### Family Menu
 
@@ -273,7 +313,73 @@ Quy tắc:
 - Một family có thể có nhiều preset.
 - Preset giúp lập menu nhanh hơn.
 
-### 3.6 Vote Món Trong Bữa
+### 3.6 Blind Box Từ Món Hệ Thống Và Món Của Tôi
+
+Luồng random:
+
+1. User mở màn Blind Box.
+2. User chọn nguồn món trong card "Nguồn món".
+3. User có thể bật `Món hệ thống`, `Món của tôi`, hoặc cả hai.
+4. Nếu user đã tự chọn món vào wheel, app random local trong wheel.
+5. Nếu wheel trống, app gọi API random từ nguồn đang bật.
+6. Kết quả hiển thị tên, ảnh và nút xem chi tiết.
+
+Quy tắc:
+
+- Món hệ thống mở `DishDetailScreen`.
+- Món cá nhân mở `PersonalDishDetailScreen`.
+- Danh tính món trong wheel dùng `sourceType + id`, không dùng mỗi `id`.
+- Nếu bật `Món của tôi` nhưng chưa có món cá nhân phù hợp, app hiển thị CTA `Tạo món của tôi`.
+- Blind Box giữ component hộp quà hiện có, chỉ mở rộng result UI khi cần.
+
+### 3.7 Tạo Món Của Tôi
+
+Luồng:
+
+1. User mở màn "Món ăn của tôi".
+2. User bấm `+ Tạo món mới`.
+3. App mở `PersonalDishEditorScreen`.
+4. User nhập tên món, ảnh URL, mô tả, nguyên liệu, cách làm, thời gian, khẩu phần, tags và ghi chú.
+5. App validate tên món không rỗng.
+6. Các field số như thời gian/khẩu phần phải là số lớn hơn 0 hoặc để trống.
+7. App gọi `POST /api/my-dishes`.
+8. Sau khi lưu thành công, user quay lại màn trước đó.
+
+Quy tắc:
+
+- Ảnh món cá nhân MVP dùng URL trực tiếp.
+- Tags optional.
+- Field để trống được gửi thành `null` nếu backend cho phép optional.
+- Editor hiện ưu tiên create; edit chi tiết món cá nhân vẫn dùng flow detail hiện tại.
+
+### 3.8 Đăng Kết Quả Blind Box Cho Follower
+
+Luồng:
+
+1. User random ra một món trong Blind Box.
+2. Result card hiển thị nút `Đăng cho follower`.
+3. App tạo post `blind_box_result`.
+4. Follower của user thấy bài trong Following Feed.
+
+Post request:
+
+```text
+postType = blind_box_result
+title = Hôm nay ăn gì?
+content = Blind Box chọn cho mình: {tên món}
+imageUrl = imageUrl của món nếu có
+```
+
+Quy tắc audience:
+
+- Post này là follower-only.
+- Follower xem qua Following Feed.
+- Non-follower không thấy bài trong Following Feed.
+- Không broadcast post này lên public/global feed cho toàn bộ user.
+- Không gửi notification/push riêng cho follower khi đăng bài để tránh spam.
+- Sau khi đăng thành công, nút đăng bị disable cho cùng kết quả để tránh duplicate.
+
+### 3.9 Vote Món Trong Bữa
 
 Luồng:
 
@@ -297,7 +403,7 @@ Vote gần đây:
 - Màn Vote gần đây hiển thị ai vote, vote món gì, vote up/down, ngày/bữa nào.
 - Bấm vào một vote sẽ mở đúng bữa ăn đó và tự mở Vote Modal.
 
-### 3.7 Family Notes
+### 3.10 Family Notes
 
 Family Notes là chat nhẹ cho gia đình.
 
@@ -313,7 +419,7 @@ Quy tắc:
 - Chỉ member của family mới đọc/gửi note.
 - Đây là MVP chat nhẹ, chưa có thread/reaction/pin.
 
-### 3.8 Pantry Management
+### 3.11 Pantry Management
 
 Luồng:
 
@@ -338,7 +444,7 @@ Quy tắc:
 - Thành viên trong family cùng xem và cập nhật Pantry.
 - Ngày hết hạn dùng cho notification expiry.
 
-### 3.9 Shopping List Và Checklist
+### 3.12 Shopping List Và Checklist
 
 Luồng generate:
 
@@ -367,7 +473,7 @@ Quy tắc realtime MVP:
 - Dùng polling 5 giây.
 - Quiet polling không được làm mất draft input user đang nhập.
 
-### 3.10 Notifications Inbox
+### 3.13 Notifications Inbox
 
 Notifications là inbox chung của app.
 
@@ -405,6 +511,31 @@ Pantry expiry notification:
 ---
 
 ## 4. Phase Theo Lộ Trình
+
+### Hotfix Phase - Blind Box + Món Của Tôi + Share Follower
+
+Mục tiêu: hoàn thiện flow cá nhân ngoài Family Space nhưng liên quan đến vòng trải nghiệm `Discover -> Share`.
+
+Bao gồm:
+
+- Blind Box chọn nguồn `Món hệ thống` / `Món của tôi`.
+- Model món trong Blind Box có `sourceType`.
+- Wheel dùng `sourceType + id` để tránh trùng id.
+- Backend random API `/api/blind-box/random`.
+- Flow `+ Tạo món mới` trong màn "Món ăn của tôi".
+- CTA `Tạo món của tôi` từ Blind Box khi chưa có món cá nhân.
+- Nút `Đăng cho follower` trong kết quả Blind Box.
+- Post kết quả Blind Box là follower-only.
+
+Exit criteria:
+
+- Random riêng system/personal/cả hai nguồn đều hoạt động.
+- Random personal dish mở đúng Personal Dish Detail.
+- Random system dish mở đúng Dish Detail.
+- Tạo món cá nhân mới thành công.
+- Share kết quả tạo post `blind_box_result`.
+- Follower thấy post trong Following Feed.
+- Non-follower không thấy post trong Following Feed.
 
 ### Phase 3 - Family Space MVP
 
@@ -532,6 +663,65 @@ Exit criteria:
 ---
 
 ## 5. Kiến Trúc Dữ Liệu
+
+### dishes
+
+Lưu món ăn hệ thống trong catalog chung.
+
+Các field chính:
+
+- `dish_id`
+- `name`
+- `image_url`
+- ingredients/instructions/tags tùy schema hiện tại
+
+### personal_dishes
+
+Lưu món ăn cá nhân của từng user.
+
+Các field chính:
+
+- `personal_dish_id`
+- `user_id`
+- `original_dish_id`
+- `dish_name`
+- `image_url`
+- `description`
+- `ingredients`
+- `instructions`
+- `prep_time`
+- `cook_time`
+- `serving`
+- `note`
+- `created_at`
+
+Quy tắc:
+
+- `user_id` là owner.
+- Chỉ owner được xem/sửa/xóa món cá nhân của mình.
+- Khi dùng trong Blind Box hoặc picker, món cá nhân phải có `sourceType = PERSONAL`.
+
+### posts
+
+Lưu bài viết/feed post.
+
+Các field chính:
+
+- `post_id`
+- `user_id`
+- `post_type`
+- `title`
+- `content`
+- `image_url`
+- `created_at`
+
+Post kết quả Blind Box dùng:
+
+```text
+post_type = blind_box_result
+```
+
+Audience của post này là follower-only trong scope hotfix.
 
 ### family_groups
 
@@ -796,6 +986,84 @@ Các field chính:
 
 ## 6. API Chính
 
+### Blind Box
+
+```text
+GET /api/blind-box/random
+```
+
+Query params:
+
+```text
+includeSystem=true|false
+includePersonal=true|false
+typeTags=...
+tasteTags=...
+ingredientTags=...
+search=...
+```
+
+Response:
+
+```kotlin
+BlindBoxDishResult(
+    id = ...,
+    sourceType = "system" | "personal",
+    name = ...,
+    imageUrl = ...,
+    tags = [...]
+)
+```
+
+Quy tắc:
+
+- `includePersonal=true` yêu cầu auth.
+- `sourceType` bắt buộc có để client không mở nhầm detail.
+- Nếu không có candidate phù hợp, trả lỗi tiếng Việt kiểu `Không tìm thấy món phù hợp`.
+
+### My Dishes
+
+```text
+GET    /api/my-dishes
+POST   /api/my-dishes
+GET    /api/my-dishes/{id}
+PUT    /api/my-dishes/{id}
+DELETE /api/my-dishes/{id}
+GET    /api/my-dishes/check/{originalDishId}
+```
+
+Quy tắc:
+
+- `dishName` required khi tạo món.
+- Tên món trim không được blank.
+- Tags/ảnh/mô tả/nguyên liệu/cách làm optional.
+- Chỉ owner được xem/sửa/xóa món cá nhân của mình.
+
+### Posts Và Following Feed
+
+```text
+POST /api/posts
+GET  /api/posts/feed/following
+```
+
+Post kết quả Blind Box:
+
+```kotlin
+CreatePostRequest(
+    postType = "blind_box_result",
+    title = "Hôm nay ăn gì?",
+    content = "Blind Box chọn cho mình: {tên món}",
+    imageUrl = ...
+)
+```
+
+Quy tắc:
+
+- Follower thấy bài qua `GET /api/posts/feed/following`.
+- Non-follower không thấy bài trong Following Feed.
+- Không gửi notification/push riêng cho follower ở MVP.
+- Không đưa `blind_box_result` vào public broadcast toàn hệ thống trong scope này.
+
 ### Families
 
 ```text
@@ -897,6 +1165,9 @@ Tất cả API family cần JWT auth.
 
 Quy tắc chung:
 
+- User chỉ được xem/sửa/xóa Personal Dish của chính mình.
+- Blind Box personal source chỉ lấy món cá nhân của requester.
+- Share kết quả Blind Box chỉ dành cho follower qua Following Feed.
 - User phải là member của family thì mới xem/sửa dữ liệu family.
 - Owner có quyền mời/xóa member.
 - User chỉ tự đổi nickname của mình.
@@ -950,6 +1221,12 @@ Mọi màn Family nên giữ cùng style app hiện tại:
 - top bar có back button
 - tránh tạo UI component mới nếu component cũ dùng được
 
+Các màn Blind Box / Personal Dish cũng theo cùng quy tắc:
+
+- Reuse `AppImage`, `FoodFestTextField`, `FoodFestFormTextField`, `FoodFestToggleRow`, `FoodFestSourceBadge`, `FoodFestSelectableChip` khi phù hợp.
+- `GiftBoxAnimation` được mở rộng bằng optional props thay vì tạo result UI song song.
+- Logic random/source merge/share post cần comment ngắn vì dễ nhầm `id` giữa system dish và personal dish.
+
 Các màn chính:
 
 - FamilyHomeScreen
@@ -985,6 +1262,24 @@ Các màn chính:
 - Xóa item khỏi menu.
 - Lưu bữa thành saved meal.
 - Apply saved meal vào ngày/bữa khác.
+
+### Blind Box Và Món Của Tôi
+
+- Blind Box random chỉ từ món hệ thống.
+- Blind Box random chỉ từ món của tôi.
+- Blind Box random từ cả hai nguồn.
+- Tắt cả hai nguồn thì nút random disabled.
+- Add/remove wheel không trùng khi system dish id và personal dish id giống nhau.
+- Random system dish mở đúng Dish Detail.
+- Random personal dish mở đúng Personal Dish Detail.
+- Bật `Món của tôi` khi danh sách trống thì hiện CTA tạo món.
+- Tạo món cá nhân mới thành công.
+- Tên món rỗng bị reject.
+- Thời gian/khẩu phần không hợp lệ bị reject.
+- Bấm `Đăng cho follower` tạo post `blind_box_result`.
+- Follower thấy post trong Following Feed.
+- Non-follower không thấy post trong Following Feed.
+- Đăng cùng kết quả lần hai không tạo duplicate từ UI.
 
 ### Vote
 
@@ -1047,6 +1342,13 @@ Các màn chính:
 
 Đã hoàn thành theo plan hiện tại:
 
+- Blind Box source từ món hệ thống/món của tôi.
+- Blind Box phân biệt `sourceType = SYSTEM/PERSONAL`.
+- Wheel dùng `sourceType + id` để tránh trùng id.
+- Tạo món cá nhân từ màn "Món ăn của tôi".
+- CTA tạo món cá nhân từ Blind Box.
+- Đăng kết quả Blind Box cho follower bằng post `blind_box_result`.
+- Post Blind Box là follower-only trong Following Feed.
 - Phase 3 Family Space MVP.
 - Multiple families.
 - Family member nickname.
@@ -1330,7 +1632,50 @@ Migration:
 
 - `database/migrations/V18__add_phase6_push_scheduler_tables.sql`: `push_device_tokens`, `notification_job_runs`, `notification_delivery_logs`.
 
-### 12.12 Routing, Auth, DI Và App Shell
+### 12.12 Blind Box, Món Của Tôi Và Share Follower
+
+Phần này xử lý random món từ nhiều nguồn, tạo món cá nhân và đăng kết quả cho follower.
+
+Client:
+
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/BlindBoxScreen.kt`: UI Blind Box, source toggles, CTA tạo món, result actions.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/BlindBoxViewModel.kt`: load nguồn món, random local/API, share result post.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/models/BlindBoxModels.kt`: `DishSourceType`, `DishUI`, `wheelKey`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/data/BlindBoxRepository.kt`: gọi `/api/blind-box/random`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/components/GiftBoxAnimation.kt`: hiển thị result, xem chi tiết, đăng follower.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/components/DishSelectionSheet.kt`: picker món trong wheel.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/blindbox/presentation/components/DishSelectionItem.kt`: item trong picker, hiển thị source badge.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/personaldish/presentation/MyDishesScreen.kt`: danh sách món cá nhân và nút `+ Tạo món`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/personaldish/presentation/PersonalDishEditorScreen.kt`: form tạo món cá nhân.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/personaldish/presentation/PersonalDishEditorViewModel.kt`: validate form, map request, gọi create API.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/personaldish/data/PersonalDishRepository.kt`: `GET/POST/PUT/DELETE /api/my-dishes`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/features/home/data/PostRepository.kt`: `createPost` cho `blind_box_result`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/components/FoodFestToggleRow.kt`: toggle nguồn món dùng chung.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/components/FoodFestSourceBadge.kt`: badge `Hệ thống` / `Món của tôi`.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/components/FoodFestFormTextField.kt`: field form create/edit.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/components/FoodFestSelectableChip.kt`: chip chọn tag.
+- `composeApp/src/commonMain/kotlin/com/foodfest/app/App.kt`: route Blind Box, Personal Dish Detail, Create Personal Dish.
+
+Backend:
+
+- `server/src/main/kotlin/com/foodfest/app/features/blindbox/BlindBoxRoute.kt`: endpoint `/api/blind-box/random`.
+- `server/src/main/kotlin/com/foodfest/app/features/blindbox/BlindBoxService.kt`: merge candidate system/personal và random.
+- `server/src/main/kotlin/com/foodfest/app/features/personaldish/PersonalDishRoute.kt`: API món cá nhân.
+- `server/src/main/kotlin/com/foodfest/app/features/personaldish/PersonalDishService.kt`: validate tạo/sửa món cá nhân.
+- `server/src/main/kotlin/com/foodfest/app/features/personaldish/PersonalDishTable.kt`: query món cá nhân theo owner.
+- `server/src/main/kotlin/com/foodfest/app/features/post/PostRoute.kt`: API tạo post và following feed.
+- `server/src/main/kotlin/com/foodfest/app/features/post/PostService.kt`: business logic post.
+- `server/src/main/kotlin/com/foodfest/app/features/post/PostTable.kt`: query post/following feed.
+- `server/src/main/kotlin/com/foodfest/app/plugins/Routing.kt`: đăng ký Blind Box routes.
+- `server/src/main/kotlin/com/foodfest/app/di/MainModule.kt`: DI cho BlindBoxService.
+
+Quy tắc quan trọng:
+
+- `sourceType` là bắt buộc để tránh nhầm id giữa bảng `dishes` và `personal_dishes`.
+- Share result dùng post `blind_box_result`, follower-only.
+- Không gửi notification/push riêng cho follower khi đăng kết quả.
+
+### 12.13 Routing, Auth, DI Và App Shell
 
 Các file hạ tầng nên biết khi một endpoint/screen không được gọi đúng:
 
@@ -1343,12 +1688,13 @@ Các file hạ tầng nên biết khi một endpoint/screen không được gọ
 - `server/src/main/kotlin/com/foodfest/app/di/MainModule.kt`: Koin dependency injection.
 - `composeApp/src/commonMain/kotlin/com/foodfest/app/App.kt`: app-level navigation.
 
-### 12.13 Tài Liệu Và Plan
+### 12.14 Tài Liệu Và Plan
 
 Các file tài liệu liên quan:
 
 - `.github/prompts/full.md`: bản plan tổng quan đầy đủ, dễ đọc cho người mới.
 - `.github/prompts/plan_fam.md`: bản plan theo phase dùng trong quá trình triển khai.
+- `.github/prompts/plan_hótfix.md`: plan riêng cho Blind Box + Món của tôi + share follower.
 
 ---
 

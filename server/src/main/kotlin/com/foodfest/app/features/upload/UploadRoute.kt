@@ -14,7 +14,8 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class UploadImageRequest(
     val imageData: String, // Base64 encoded
-    val fileName: String
+    val fileName: String,
+    val folder: String? = null
 )
 
 @Serializable
@@ -40,10 +41,15 @@ fun Route.uploadRoutes() {
                     )
                 }
                 
-                // Upload lên Cloudinary với folder "posts"
+                val uploadFolder = when (request.folder) {
+                    "posts", "dishes", "personal-dishes", "avatars" -> request.folder
+                    else -> "posts"
+                }
+
+                // Folder is whitelisted so clients can reuse this endpoint without writing outside known Cloudinary groups.
                 val imageUrl = CloudinaryService.uploadAvatar(
                     base64Image = request.imageData,
-                    folder = "posts"
+                    folder = uploadFolder
                 )
                 
                 if (imageUrl != null) {

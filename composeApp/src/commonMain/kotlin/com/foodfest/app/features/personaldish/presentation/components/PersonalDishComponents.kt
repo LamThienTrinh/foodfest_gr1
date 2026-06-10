@@ -146,6 +146,7 @@ fun MyDishesLoadingState(
 @Composable
 fun MyDishesEmptyState(
     modifier: Modifier = Modifier,
+    onCreateDish: () -> Unit = {},
     onExplore: () -> Unit = {}
 ) {
     Box(
@@ -171,7 +172,7 @@ fun MyDishesEmptyState(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = "Mở hộp quà để khám phá món ăn mới và lưu công thức riêng của bạn",
+                text = "Tạo món riêng của bạn để Blind Box có thêm lựa chọn cá nhân.",
                 fontSize = 14.sp,
                 color = AppColors.GrayPlaceholder,
                 textAlign = TextAlign.Center
@@ -180,12 +181,19 @@ fun MyDishesEmptyState(
             Spacer(modifier = Modifier.height(24.dp))
             
             Button(
-                onClick = onExplore,
+                onClick = onCreateDish,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AppColors.Orange
                 )
             ) {
-                Text("Khám phá món ăn")
+                Text("Tạo món mới")
+            }
+
+            TextButton(onClick = onExplore) {
+                Text(
+                    text = "Khám phá món ăn",
+                    color = AppColors.Brown
+                )
             }
         }
     }

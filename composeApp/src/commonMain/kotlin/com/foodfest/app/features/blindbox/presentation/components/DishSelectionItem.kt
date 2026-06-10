@@ -1,6 +1,7 @@
 package com.foodfest.app.features.blindbox.presentation.components
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.foodfest.app.components.FoodFestSourceBadge
+import com.foodfest.app.features.blindbox.presentation.models.DishSourceType
 import com.foodfest.app.features.blindbox.presentation.models.DishUI
 import com.foodfest.app.theme.AppColors
 
@@ -42,7 +45,14 @@ fun DishSelectionItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(dish.name, fontWeight = FontWeight.Medium)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(dish.name, fontWeight = FontWeight.Medium)
+                FoodFestSourceBadge(
+                    text = if (dish.sourceType == DishSourceType.PERSONAL) "Món của tôi" else "Hệ thống",
+                    highlighted = dish.sourceType == DishSourceType.PERSONAL,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
 
             IconButton(
                 onClick = onToggle,

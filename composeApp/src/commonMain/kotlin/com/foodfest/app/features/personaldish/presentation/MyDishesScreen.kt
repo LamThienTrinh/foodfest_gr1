@@ -22,8 +22,10 @@ import com.foodfest.app.theme.AppColors
 @Composable
 fun MyDishesScreen(
     viewModel: MyDishesViewModel = remember { MyDishesViewModel() },
+    refreshVersion: Int = 0,
     onBack: () -> Unit,
-    onExplore: () -> Unit = {}
+    onExplore: () -> Unit = {},
+    onCreateDish: () -> Unit = {}
 ) {
     val state = viewModel.state
     val snackbarHostState = remember { SnackbarHostState() }
@@ -39,7 +41,7 @@ fun MyDishesScreen(
     }
     
     // Load data on first composition
-    LaunchedEffect(Unit) {
+    LaunchedEffect(refreshVersion) {
         viewModel.loadTags()
         viewModel.loadDishes(1)
     }
@@ -60,6 +62,15 @@ fun MyDishesScreen(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Quay lại",
                             tint = AppColors.Brown
+                        )
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onCreateDish) {
+                        Text(
+                            text = "+ Tạo món",
+                            color = AppColors.Orange,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 },
@@ -107,6 +118,7 @@ fun MyDishesScreen(
                 state.filteredDishes.isEmpty() -> {
                     MyDishesEmptyState(
                         modifier = Modifier.fillMaxSize(),
+                        onCreateDish = onCreateDish,
                         onExplore = onExplore
                     )
                 }
