@@ -52,3 +52,10 @@ SOICT_DATN_Application_VIE_Template/
 
 /latex
 /.github
+
+# AI agent/local assistant files
+/.agents/
+/.codex/
+AGENTS.md
+CLAUDE.md
+.aider*
