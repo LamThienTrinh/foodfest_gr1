@@ -7,16 +7,21 @@ import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import io.github.cdimascio.dotenv.dotenv
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.security.MessageDigest
 
 object CloudinaryService {
-    // Hardcode để đảm bảo hoạt động
-    private const val cloudName = "dpf6mzl4g"
-    private const val apiKey = "627841298718141"
-    private const val apiSecret = "Bt8dkkfVbP9CnHpkn2KrciCI2Hc"
+    private val dotenv = dotenv {
+        directory = "./server"
+        ignoreIfMissing = true
+    }
+
+    private val cloudName = readConfig("CLOUDINARY_CLOUD_NAME")
+    private val apiKey = readConfig("CLOUDINARY_API_KEY")
+    private val apiSecret = readConfig("CLOUDINARY_API_SECRET")
     
     private val client = HttpClient(CIO) {
         install(HttpTimeout) {
@@ -28,6 +33,15 @@ object CloudinaryService {
     private val json = Json { ignoreUnknownKeys = true }
     
     suspend fun uploadAvatar(base64Image: String, folder: String = "avatars"): String? {
+        val cloudName = cloudName
+        val apiKey = apiKey
+        val apiSecret = apiSecret
+
+        if (cloudName.isNullOrBlank() || apiKey.isNullOrBlank() || apiSecret.isNullOrBlank()) {
+            println("Cloudinary upload skipped: missing CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY or CLOUDINARY_API_SECRET")
+            return null
+        }
+
         return try {
             println("=== Cloudinary Upload Start ===")
             println("Cloud name: $cloudName, Folder: $folder")
@@ -47,7 +61,6 @@ object CloudinaryService {
             val signature = sha1Hex(paramsToSign + apiSecret)
             
             println("Timestamp: $timestamp")
-            println("Signature: $signature")
             
             val uploadUrl = "https://api.cloudinary.com/v1_1/$cloudName/image/upload"
             
@@ -86,5 +99,10 @@ object CloudinaryService {
         val md = MessageDigest.getInstance("SHA-1")
         val digest = md.digest(input.toByteArray(Charsets.UTF_8))
         return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    private fun readConfig(key: String): String? {
+        return dotenv[key]?.takeIf { it.isNotBlank() }
+            ?: System.getenv(key)?.takeIf { it.isNotBlank() }
     }
 }
